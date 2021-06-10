@@ -10,11 +10,20 @@
   "license": "GPL-3.0-only",
   "devDependencies": {
     "@nomiclabs/hardhat-ethers": "^2.0.2",
+    "@nomiclabs/hardhat-etherscan": "^2.1.0",
     "@nomiclabs/hardhat-waffle": "^2.0.1",
     "@openzeppelin/contracts": "^3.2.0",
+    "@types/chai": "^4.2.18",
+    "@types/mocha": "^8.2.2",
+    "@types/node": "^15.6.1",
+    "@types/yargs": "^15.0.10",
     "chai": "^4.3.4",
+    "dotenv": "^10.0.0",
     "ethereum-waffle": "^3.3.0",
-    "ethers": "^5.0.32",
-    "hardhat": "^2.1.1"
+    "ethers": "^5.3.0",
+    "hardhat": "^2.1.1",
+    "hardhat-deploy": "^0.7.10",
+    "ts-node": "^10.0.0",
+    "typescript": "^4.3.2"
   }
 }
