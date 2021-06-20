@@ -13,8 +13,10 @@ contract Multisig is
 
     uint256 private nonce = 0;
 
-    event ExecutionFailure(address destination);
-    event ExecutionSuccess(address destination);
+    mapping(bytes32 => bool) public executedTxHashs;
+
+    event ExecutionFailure(bytes32 txHash);
+    event ExecutionSuccess(bytes32 txHash);
 
     /// @dev Contract constructor sets initial owners and threshold.
     /// @param _owners List of initial owners.
@@ -30,18 +32,20 @@ contract Multisig is
         bytes calldata data,
         Enum.Operation operation,
         uint256 safeTxGas,
+        bytes32 txHash,
         uint8[] memory vs,
         bytes32[] memory rs,
         bytes32[] memory ss
-    ) public returns (bool success) {
+    ) public payable returns (bool success) {
         require(checkSignatures(to, value, data, vs, rs, ss), "SP025");
         nonce++;
         success = execute(to, value, data, operation, safeTxGas);
 
-        if (success)
-            ExecutionSuccess(to);
-        else {
-            ExecutionFailure(to);
+        if (success) {
+            ExecutionSuccess(txHash);
+            executedTxHashs[txHash] = true;
+        } else {
+            ExecutionFailure(txHash);
         }
     }
 
