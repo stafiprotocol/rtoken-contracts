@@ -1,19 +1,38 @@
 # rtoken-contracts
 StaFi rtoken contracts
 
-# Dependencies
+Usage
+-----
+### Install requirements with yarn:
 
-Requires `nodejs` and `npm`.
-
-# Compile
-
-```
-npm install
-npm run compile
+```bash
+yarn
 ```
 
-# Test
+### Compile
 
+```bash
+yarn hardhat compile
 ```
-npx hardhat test
+
+### test
+
+```bash
+yarn hardhat test
 ```
+
+### deploy
+
+Preparation:
+- create `.env` file if it does not exist
+- Set `MNEMONIC` in `.env`
+- Set `INFURA_KEY` in `.env`
+- Set `ETHERSCAN_API_KEY` in `.env`
+
+```bash
+yarn hardhat --network <network> deploy
+```
+- network can be: mainnet, xdai, ewc, rinkeby, goerli, kovan, volta. add network to hardhat.config.ts if you'd like to support new network.
+
+
+
