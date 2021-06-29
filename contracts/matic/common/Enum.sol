@@ -4,4 +4,5 @@ pragma solidity >=0.7.0 <0.9.0;
 /// @title Enum - Collection of enums
 contract Enum {
     enum Operation {Call, DelegateCall}
+    enum HashState {Unsubmit, Fail, Success}
 }

@@ -4,6 +4,7 @@ pragma solidity >=0.7.0 <0.9.0;
 import "./base/ModuleManager.sol";
 import "./base/OwnerManager.sol";
 import "./external/GnosisSafeMath.sol";
+import "./common/Enum.sol";
 
 contract Multisig is
     ModuleManager,
@@ -12,11 +13,9 @@ contract Multisig is
     using GnosisSafeMath for uint256;
 
     uint256 private nonce = 0;
+    mapping(bytes32 => Enum.HashState) public TxHashs;
 
-    mapping(bytes32 => bool) public executedTxHashs;
-
-    event ExecutionFailure(bytes32 txHash);
-    event ExecutionSuccess(bytes32 txHash);
+    event ExecutionResult(bytes32 txHash, Enum.HashState);
 
     /// @dev Contract constructor sets initial owners and threshold.
     /// @param _owners List of initial owners.
@@ -37,15 +36,17 @@ contract Multisig is
         bytes32[] memory rs,
         bytes32[] memory ss
     ) public payable returns (bool success) {
+        require(TxHashs[txHash] != Enum.HashState.Success);
         require(checkSignatures(to, value, data, vs, rs, ss), "SP025");
         nonce++;
         success = execute(to, value, data, operation, safeTxGas);
 
         if (success) {
-            ExecutionSuccess(txHash);
-            executedTxHashs[txHash] = true;
+            TxHashs[txHash] = Enum.HashState.Success;
+            ExecutionResult(txHash, Enum.HashState.Success);
         } else {
-            ExecutionFailure(txHash);
+            TxHashs[txHash] = Enum.HashState.Fail;
+            ExecutionResult(txHash, Enum.HashState.Fail);
         }
     }
 
@@ -84,7 +85,7 @@ contract Multisig is
     // Generates the message to sign given the output destination address and amount and data.
     // includes this contract's address and a nonce for replay protection.
     function messageToSign(address to, uint256 value, bytes calldata data) public view returns (bytes32) {
-        bytes32 message = keccak256(abi.encodePacked(address(this), to, value, data, nonce));
+        bytes32 message = keccak256(abi.encodePacked(address(this), to, value, data));
         return message;
     }
 

@@ -2,7 +2,7 @@ import { DeployFunction } from "hardhat-deploy/types";
 import { HardhatRuntimeEnvironment } from "hardhat/types";
 
 const owners = ["0xBd39f5936969828eD9315220659cD11129071814", "0xBca9567A9e8D5F6F58C419d32aF6190F74C880e6"]
-const threshold = 1
+const threshold = 2
 const AddressZero = "0x0000000000000000000000000000000000000000"
 const data = "0x"
 
