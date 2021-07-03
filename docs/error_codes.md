@@ -5,10 +5,7 @@
 - `SP001`: `Threshold needs to be defined`
 
 ### General gas/ execution related
-- `SP010`: `Not enough gas to execute Safe transaction`
-- `SP011`: `Could not pay gas costs with ether`
-- `SP012`: `Could not pay gas costs with token`
-- `SP013`: `Safe transaction failed when gasPrice and safeTxGas were 0`
+- `SP010`: `Safe transaction failed as txhash state is success`
 
 ### General signature validation related
 - `SP020`: `Signatures data too short`

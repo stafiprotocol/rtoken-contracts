@@ -36,7 +36,7 @@ contract Multisig is
         bytes32[] memory rs,
         bytes32[] memory ss
     ) public payable returns (bool success) {
-        require(TxHashs[txHash] != Enum.HashState.Success);
+        require(TxHashs[txHash] != Enum.HashState.Success, "SP010");
         require(checkSignatures(to, value, data, vs, rs, ss), "SP025");
         nonce++;
         success = execute(to, value, data, operation, safeTxGas);
