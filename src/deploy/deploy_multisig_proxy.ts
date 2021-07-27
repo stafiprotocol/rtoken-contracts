@@ -1,10 +1,11 @@
 import { DeployFunction } from "hardhat-deploy/types";
 import { HardhatRuntimeEnvironment } from "hardhat/types";
 
-// const owners = ["0xBd39f5936969828eD9315220659cD11129071814", "0xBca9567A9e8D5F6F58C419d32aF6190F74C880e6"]
-// const threshold = 2
-// const AddressZero = "0x0000000000000000000000000000000000000000"
-// const data = "0x"
+const proxyTo = "0xbE91E35F02134df33763BfEA8D00fA22901e0cA8"
+const data = "0x"
+
+// deployed on remix, change to your own proxyAdminContract before deploying
+const proxyAdminContract = "0xBf996BFe7a62ab39130281eC1062eDbEC88B708d"
 
 const deploy: DeployFunction = async function (
     hre: HardhatRuntimeEnvironment,
@@ -13,13 +14,13 @@ const deploy: DeployFunction = async function (
     const { deployer } = await getNamedAccounts();
     const { deploy } = deployments;
 
-    await deploy("Multisig", {
+    await deploy("MultisigProxy", {
         from: deployer,
-        args: [],
+        args: [proxyTo, proxyAdminContract, data],
         log: true,
         deterministicDeployment: true,
     });
 };
 
-deploy.tags = ['Multisig']
+deploy.tags = ['MultisigProxy']
 export default deploy;
