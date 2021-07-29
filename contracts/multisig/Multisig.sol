@@ -17,6 +17,13 @@ contract Multisig is
 
     event ExecutionResult(bytes32 txHash, Enum.HashState);
 
+    constructor() {
+        // By setting the threshold it is not possible to call setup anymore,
+        // so we create a Safe with 0 owners and threshold 1.
+        // This is an unusable Safe, perfect for the singleton
+        threshold = 1;
+    }
+
     /// @dev initialize initial owners and threshold.
     /// @param _owners List of initial owners.
     /// @param _threshold Number of required confirmations.
