@@ -36,7 +36,7 @@ contract Multisig is
         bytes32[] memory ss
     ) external payable returns (bool success) {
         require(TxHashs[txHash] != Enum.HashState.Success, "SP010");
-        require(checkSignatures(to, value, data, txHash, vs, rs, ss), "SP025");
+        require(checkSignatures(to, value, data, txHash, operation, vs, rs, ss), "SP025");
         nonce++;
         success = execute(to, value, data, operation, safeTxGas);
 
@@ -56,6 +56,7 @@ contract Multisig is
         uint256 value,
         bytes calldata data,
         bytes32 txHash,
+        Enum.Operation operation,
         uint8[] memory vs,
         bytes32[] memory rs,
         bytes32[] memory ss
@@ -67,7 +68,7 @@ contract Multisig is
         require(signum == rs.length, "SP022");
         require(signum == ss.length, "SP022");
 
-        bytes32 message = _messageToSign(to, value, data, txHash);
+        bytes32 message = _messageToSign(to, value, data, txHash, operation);
         address[] memory addrs = new address[](signum);
         for (uint256 i = 0; i < signum; i++) {
             //recover the address associated with the public key from elliptic curve signature or return zero on error
@@ -84,8 +85,14 @@ contract Multisig is
 
     // Generates the message to sign given the output destination address and amount and data.
     // includes this contract's address and a nonce for replay protection.
-    function _messageToSign(address to, uint256 value, bytes calldata data, bytes32 txHash) private view returns (bytes32) {
-        bytes32 message = keccak256(abi.encodePacked(address(this), to, value, data, txHash));
+    function _messageToSign(
+        address to,
+        uint256 value,
+        bytes calldata data,
+        bytes32 txHash,
+        Enum.Operation operation
+    ) private view returns (bytes32) {
+        bytes32 message = keccak256(abi.encodePacked(address(this), to, value, data, txHash, operation));
         return message;
     }
 
