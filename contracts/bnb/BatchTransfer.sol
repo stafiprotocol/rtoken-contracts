@@ -30,8 +30,9 @@ contract BatchTransfer is Ownable {
 
     constructor(address[] memory initialSubAccounts, uint256 initialThreshold) {
         require(
-            initialSubAccounts.length >= initialThreshold,
-            "threashold too big"
+            initialSubAccounts.length >= initialThreshold &&
+                initialThreshold > 0,
+            "invalid threshold"
         );
         _threshold = initialThreshold.toUint8();
         uint256 initialSubAccountCount = initialSubAccounts.length;
@@ -57,7 +58,10 @@ contract BatchTransfer is Ownable {
     }
 
     function changeThreshold(uint256 newThreshold) external onlyOwner {
-        require(subAccounts.length() >= newThreshold, "threashold too big");
+        require(
+            subAccounts.length() >= newThreshold && newThreshold > 0,
+            "invalid threshold"
+        );
         _threshold = newThreshold.toUint8();
     }
 
