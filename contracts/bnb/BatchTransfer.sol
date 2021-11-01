@@ -57,7 +57,8 @@ contract BatchTransfer is Ownable {
     }
 
     function withdraw() public onlyOwner {
-        msg.sender.call{value: address(this).balance}("");
+        (bool success, ) = msg.sender.call{value: address(this).balance}("");
+        require(success, "transfer failed");
     }
 
     function getSubAccountIndex(address subAccount)
@@ -89,7 +90,7 @@ contract BatchTransfer is Ownable {
         address[] memory _tos,
         uint256[] memory _values
     ) public onlySubAccount {
-        bytes32 dataHash = keccak256(abi.encodePacked(_block, _tos, _values));
+        bytes32 dataHash = keccak256(abi.encode(_block, _tos, _values));
         Proposal memory proposal = _proposals[dataHash];
 
         require(uint256(proposal._status) <= 1, "proposal already executed");
