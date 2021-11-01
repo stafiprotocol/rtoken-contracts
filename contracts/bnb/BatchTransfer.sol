@@ -12,7 +12,6 @@ contract BatchTransfer is Ownable {
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeMath for uint256;
 
-    //subAccount
     enum ProposalStatus {
         Inactive,
         Active,
@@ -30,6 +29,10 @@ contract BatchTransfer is Ownable {
     EnumerableSet.AddressSet subAccounts;
 
     constructor(address[] memory initialSubAccounts, uint256 initialThreshold) {
+        require(
+            initialSubAccounts.length >= initialThreshold,
+            "threashold too big"
+        );
         _threshold = initialThreshold.toUint8();
         uint256 initialSubAccountCount = initialSubAccounts.length;
         for (uint256 i; i < initialSubAccountCount; i++) {
@@ -37,16 +40,13 @@ contract BatchTransfer is Ownable {
         }
     }
 
-    // Function to receive Ether. msg.data must be empty
-    receive() external payable {}
-
-    // Fallback function is called when msg.data is not empty
-    fallback() external payable {}
-
     modifier onlySubAccount() {
         require(subAccounts.contains(msg.sender));
         _;
     }
+
+    // Function to receive Ether. msg.data must be empty
+    receive() external payable {}
 
     function addSubAccount(address subAccount) public onlyOwner {
         subAccounts.add(subAccount);
@@ -54,6 +54,11 @@ contract BatchTransfer is Ownable {
 
     function removeSubAccount(address subAccount) public onlyOwner {
         subAccounts.remove(subAccount);
+    }
+
+    function changeThreshold(uint256 newThreshold) external onlyOwner {
+        require(subAccounts.length() >= newThreshold, "threashold too big");
+        _threshold = newThreshold.toUint8();
     }
 
     function withdraw() public onlyOwner {
@@ -81,20 +86,20 @@ contract BatchTransfer is Ownable {
         return (subAccountBit(subAccount) & uint256(proposal._yesVotes)) > 0;
     }
 
-    function changeThreshold(uint256 newThreshold) external onlyOwner {
-        _threshold = newThreshold.toUint8();
-    }
-
     function batchTransfer(
         uint256 _block,
         address[] memory _tos,
         uint256[] memory _values
     ) public onlySubAccount {
+        require(
+            _tos.length == _values.length,
+            "_tos len must equal to _values"
+        );
         bytes32 dataHash = keccak256(abi.encode(_block, _tos, _values));
         Proposal memory proposal = _proposals[dataHash];
 
         require(uint256(proposal._status) <= 1, "proposal already executed");
-        require(!_hasVoted(proposal, msg.sender), "relayer already voted");
+        require(!_hasVoted(proposal, msg.sender), "already voted");
 
         if (proposal._status == ProposalStatus.Inactive) {
             proposal = Proposal({
