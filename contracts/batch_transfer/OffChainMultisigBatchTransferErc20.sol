@@ -32,7 +32,7 @@ contract BatchTransfer is Ownable {
         require(
             initialSubAccounts.length >= initialThreshold &&
                 initialThreshold > 0,
-            "invalid threshold"
+            "SP201/202"
         );
         _threshold = initialThreshold.toUint8();
         uint256 initialSubAccountCount = initialSubAccounts.length;
@@ -58,7 +58,7 @@ contract BatchTransfer is Ownable {
     function changeThreshold(uint256 newThreshold) external onlyOwner {
         require(
             subAccounts.length() >= newThreshold && newThreshold > 0,
-            "invalid threshold"
+            "SP201/202"
         );
         _threshold = newThreshold.toUint8();
     }
@@ -118,26 +118,20 @@ contract BatchTransfer is Ownable {
     }
 
     function batchTransfer(
-        uint256 _block,
-        address[] memory _tos,
-        uint256[] memory _values,
+        uint256 blockNumber,
+        address[] memory tos,
+        uint256[] memory values,
         uint8[] memory vs,
         bytes32[] memory rs,
         bytes32[] memory ss
     ) external onlySubAccount {
-        require(
-            _tos.length == _values.length,
-            "_tos len must equal to _values"
-        );
-        bytes32 dataHash = keccak256(abi.encode(_block, _tos, _values));
-        require(
-            _transferState[dataHash] == TransferStatus.UnSubmit,
-            "double spend"
-        );
+        require(tos.length == values.length, "SP300");
+        bytes32 dataHash = keccak256(abi.encode(blockNumber, tos, values));
+        require(_transferState[dataHash] == TransferStatus.UnSubmit, "SP301");
         require(checkSignatures(dataHash, vs, rs, ss), "SP025");
 
-        for (uint256 i = 0; i < _tos.length; i++) {
-            IERC20(_erc20TokenAddress).safeTransfer(_tos[i], _values[i]);
+        for (uint256 i = 0; i < tos.length; i++) {
+            IERC20(_erc20TokenAddress).safeTransfer(tos[i], values[i]);
         }
         _transferState[dataHash] = TransferStatus.Executed;
     }

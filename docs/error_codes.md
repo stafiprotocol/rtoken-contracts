@@ -33,3 +33,7 @@
 - `SP203`: `Invalid owner address provided`
 - `SP204`: `Address is already an owner`
 - `SP205`: `Invalid prevOwner, owner pair provided`
+
+### batchTransfer
+- `SP300`:`tos len must equal to values`
+- `SP301`:`double spend`
