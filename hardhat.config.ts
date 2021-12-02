@@ -37,7 +37,7 @@ if (["mainnet", "rinkeby", "kovan", "goerli"].includes(argv.network) && INFURA_K
 const userConfig: HardhatUserConfig = {
     solidity: {
         compilers: [
-            {version: "0.7.4"},
+            {version: "0.7.6"},
         ]
     },
     networks: {

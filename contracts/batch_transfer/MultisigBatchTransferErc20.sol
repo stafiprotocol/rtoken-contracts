@@ -34,7 +34,7 @@ contract BatchTransfer is Ownable {
         address[] memory initialSubAccounts,
         uint256 initialThreshold,
         address erc20TokenAddress
-    ) public {
+    ) {
         require(
             initialSubAccounts.length >= initialThreshold &&
                 initialThreshold > 0,
