@@ -21,7 +21,8 @@ contract BatchTransfer is Ownable {
     mapping(bytes32 => TransferStatus) public _transferState;
     uint8 public _threshold;
     address public _erc20TokenAddress;
-
+    uint256 public _timestamp;
+    uint256 public _id;
     EnumerableSet.AddressSet subAccounts;
 
     constructor(
@@ -40,6 +41,12 @@ contract BatchTransfer is Ownable {
             subAccounts.add(initialSubAccounts[i]);
         }
         _erc20TokenAddress = erc20TokenAddress;
+        _timestamp = block.timestamp;
+        uint256 id;
+        assembly {
+            id := chainid()
+        }
+        _id = id;
     }
 
     modifier onlySubAccount() {
@@ -126,7 +133,9 @@ contract BatchTransfer is Ownable {
         bytes32[] memory ss
     ) external onlySubAccount {
         require(tos.length == values.length, "SP300");
-        bytes32 dataHash = keccak256(abi.encode(blockNumber, tos, values));
+        bytes32 dataHash = keccak256(
+            abi.encode(_timestamp, _id, blockNumber, tos, values)
+        );
         require(_transferState[dataHash] == TransferStatus.UnSubmit, "SP301");
         require(checkSignatures(dataHash, vs, rs, ss), "SP025");
 
