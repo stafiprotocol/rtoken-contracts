@@ -189,7 +189,7 @@ Ownable
 
         expectedBondeds[poolAddr] = expectedBondeds[poolAddr].sub(value);
         totalExpectedBonded = totalExpectedBonded.sub(value);
-        emit Unbonded(msg.sender, value, rvalue, poolAddr, group, lesser, greater, index);
+        emit Unbonded(msg.sender, value, poolAddr, group);
     }
 
     function withdraw(address poolAddr) external nonReentrant {
