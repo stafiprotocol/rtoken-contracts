@@ -12,13 +12,13 @@ yarn
 ### Compile
 
 ```bash
-yarn hardhat compile
+yarn compile
 ```
 
 ### test
 
 ```bash
-yarn hardhat test
+yarn  test
 ```
 
 ### deploy
