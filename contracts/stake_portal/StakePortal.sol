@@ -13,9 +13,10 @@ contract StakePortal is Ownable {
         address stakePool,
         uint256 amount,
         uint8 chainId,
-        bytes stafiRecipient,
-        bytes destRecipient
+        bytes32 stafiRecipient,
+        address destRecipient
     );
+    event RecoverStake(bytes32 txHash, bytes32 stafiRecipient);
 
     address public erc20TokenAddress;
     uint256 public minAmount;
@@ -82,8 +83,8 @@ contract StakePortal is Ownable {
         address _stakePoolAddress,
         uint256 _amount,
         uint8 _destChainId,
-        bytes memory _stafiRecipient,
-        bytes memory _destRecipient
+        bytes32 _stafiRecipient,
+        address _destRecipient
     ) public payable {
         require(_amount >= minAmount, "amount < minAmount");
         require(msg.value >= relayFee, "relay fee not enough");
@@ -92,6 +93,10 @@ contract StakePortal is Ownable {
             "stake pool not exist"
         );
         require(chainIdExist[_destChainId], "dest chain id not exit");
+        require(
+            _stafiRecipient != bytes32(0) && _destRecipient != address(0),
+            "wrong recipient"
+        );
 
         IERC20(erc20TokenAddress).safeTransferFrom(
             msg.sender,
@@ -107,5 +112,14 @@ contract StakePortal is Ownable {
             _stafiRecipient,
             _destRecipient
         );
+    }
+
+    function recoverStake(bytes32 _txHash, bytes32 _stafiRecipient) public {
+        require(
+            _txHash != bytes32(0) && _stafiRecipient != bytes32(0),
+            "wrong txHash or recipient"
+        );
+
+        emit RecoverStake(_txHash, _stafiRecipient);
     }
 }
