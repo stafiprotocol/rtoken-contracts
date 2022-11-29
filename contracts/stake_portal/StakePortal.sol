@@ -12,8 +12,9 @@ contract StakePortal is Ownable {
         address staker,
         address stakePool,
         uint256 amount,
-        bytes recipient,
-        uint8 chainId
+        uint8 chainId,
+        bytes stafiRecipient,
+        bytes destRecipient
     );
 
     address public erc20TokenAddress;
@@ -24,7 +25,7 @@ contract StakePortal is Ownable {
 
     constructor(
         address[] memory _stakePoolAddressList,
-        uint8[] memory _destChainIdList,
+        uint8[] memory _chainIdList,
         address _erc20TokenAddress,
         uint256 _minAmount,
         uint256 _relayFee
@@ -33,8 +34,8 @@ contract StakePortal is Ownable {
             stakePoolAddressExist[_stakePoolAddressList[i]] = true;
         }
 
-        for (uint256 i = 0; i < _destChainIdList.length; i++) {
-            chainIdExist[_destChainIdList[i]] = true;
+        for (uint256 i = 0; i < _chainIdList.length; i++) {
+            chainIdExist[_chainIdList[i]] = true;
         }
 
         erc20TokenAddress = _erc20TokenAddress;
@@ -80,8 +81,9 @@ contract StakePortal is Ownable {
     function stake(
         address _stakePoolAddress,
         uint256 _amount,
-        bytes memory _recipient,
-        uint8 _destChainId
+        uint8 _destChainId,
+        bytes memory _stafiRecipient,
+        bytes memory _destRecipient
     ) public payable {
         require(_amount >= minAmount, "amount < minAmount");
         require(msg.value >= relayFee, "relay fee not enough");
@@ -101,8 +103,9 @@ contract StakePortal is Ownable {
             msg.sender,
             _stakePoolAddress,
             _amount,
-            _recipient,
-            _destChainId
+            _destChainId,
+            _stafiRecipient,
+            _destRecipient
         );
     }
 }
