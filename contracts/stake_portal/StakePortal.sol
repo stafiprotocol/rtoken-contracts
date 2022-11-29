@@ -14,23 +14,31 @@ contract StakePortal is Ownable {
     address public erc20TokenAddress;
     address public stakePoolAddress;
     uint256 public minAmount;
+    uint256 public relayFee;
 
     constructor(
         address _erc20TokenAddress,
         address _stakePoolAddress,
-        uint256 _minAmount
+        uint256 _minAmount,
+        uint256 _relayFee
     ) {
         erc20TokenAddress = _erc20TokenAddress;
         stakePoolAddress = _stakePoolAddress;
         minAmount = _minAmount;
+        relayFee = _relayFee;
     }
 
     function setMinAmount(uint256 _minAmount) external onlyOwner {
         minAmount = _minAmount;
     }
 
-    function stake(uint256 amount, bytes memory _data) public {
+    function setRelayFee(uint256 _relayFee) external onlyOwner {
+        relayFee = _relayFee;
+    }
+
+    function stake(uint256 amount, bytes memory _data) public payable {
         require(amount >= minAmount, "amount < minAmount");
+        require(msg.value >= relayFee, "relay fee not enough");
 
         uint256 balBefore = IERC20(erc20TokenAddress).balanceOf(
             stakePoolAddress
