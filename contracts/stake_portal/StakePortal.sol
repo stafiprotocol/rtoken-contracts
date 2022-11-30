@@ -2,9 +2,8 @@ pragma solidity >=0.7.0 <0.9.0;
 // SPDX-License-Identifier: GPL-3.0-only
 
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
 
-contract StakePortal is Ownable {
+contract StakePortal {
     using SafeERC20 for IERC20;
 
     // Events
@@ -21,18 +20,26 @@ contract StakePortal is Ownable {
     address public erc20TokenAddress;
     uint256 public minAmount;
     uint256 public relayFee;
+    address public owner;
     bool public stakeSwitch;
+    bool public initialized;
 
     mapping(address => bool) public stakePoolAddressExist;
     mapping(uint8 => bool) public chainIdExist;
 
-    constructor(
+    modifier onlyOwner() {
+        require(owner == msg.sender, "caller is not the owner");
+        _;
+    }
+
+    function initialize(
         address[] memory _stakePoolAddressList,
         uint8[] memory _chainIdList,
         address _erc20TokenAddress,
         uint256 _minAmount,
         uint256 _relayFee
-    ) {
+    ) external {
+        require(!initialized, "already initialized");
         for (uint256 i = 0; i < _stakePoolAddressList.length; i++) {
             stakePoolAddressExist[_stakePoolAddressList[i]] = true;
         }
@@ -44,7 +51,14 @@ contract StakePortal is Ownable {
         erc20TokenAddress = _erc20TokenAddress;
         minAmount = _minAmount;
         relayFee = _relayFee;
+        owner = msg.sender;
         stakeSwitch = true;
+        initialized = true;
+    }
+
+    function transferOwnership(address _newOwner) public onlyOwner {
+        require(_newOwner != address(0), "new owner is the zero address");
+        owner = _newOwner;
     }
 
     function addStakePool(
