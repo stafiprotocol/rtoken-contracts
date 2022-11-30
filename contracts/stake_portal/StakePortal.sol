@@ -21,6 +21,8 @@ contract StakePortal is Ownable {
     address public erc20TokenAddress;
     uint256 public minAmount;
     uint256 public relayFee;
+    bool public stakeSwitch;
+
     mapping(address => bool) public stakePoolAddressExist;
     mapping(uint8 => bool) public chainIdExist;
 
@@ -42,6 +44,7 @@ contract StakePortal is Ownable {
         erc20TokenAddress = _erc20TokenAddress;
         minAmount = _minAmount;
         relayFee = _relayFee;
+        stakeSwitch = true;
     }
 
     function addStakePool(
@@ -74,6 +77,10 @@ contract StakePortal is Ownable {
         relayFee = _relayFee;
     }
 
+    function toggleSwitch() external onlyOwner {
+        stakeSwitch = !stakeSwitch;
+    }
+
     function withdrawFee() external onlyOwner {
         (bool success, ) = msg.sender.call{value: address(this).balance}("");
         require(success, "failed to withdraw");
@@ -86,6 +93,7 @@ contract StakePortal is Ownable {
         bytes32 _stafiRecipient,
         address _destRecipient
     ) public payable {
+        require(stakeSwitch, "stake not open");
         require(_amount >= minAmount, "amount < minAmount");
         require(msg.value >= relayFee, "relay fee not enough");
         require(
