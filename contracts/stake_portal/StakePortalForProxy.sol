@@ -3,7 +3,7 @@ pragma solidity 0.7.6;
 
 import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
-contract StakePortal {
+contract StakePortalForProxy {
     using SafeERC20 for IERC20;
 
     // Events
@@ -22,6 +22,7 @@ contract StakePortal {
     uint256 public relayFee;
     address public owner;
     bool public stakeSwitch;
+    bool public initialized;
 
     mapping(address => bool) public stakePoolAddressExist;
     mapping(uint8 => bool) public chainIdExist;
@@ -31,13 +32,14 @@ contract StakePortal {
         _;
     }
 
-    constructor(
+    function initialize(
         address[] memory _stakePoolAddressList,
         uint8[] memory _chainIdList,
         address _erc20TokenAddress,
         uint256 _minAmount,
         uint256 _relayFee
-    ) {
+    ) external {
+        require(!initialized, "already initialized");
         for (uint256 i = 0; i < _stakePoolAddressList.length; i++) {
             stakePoolAddressExist[_stakePoolAddressList[i]] = true;
         }
@@ -51,6 +53,7 @@ contract StakePortal {
         relayFee = _relayFee;
         owner = msg.sender;
         stakeSwitch = true;
+        initialized = true;
     }
 
     function transferOwnership(address _newOwner) public onlyOwner {
