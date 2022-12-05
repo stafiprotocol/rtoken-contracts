@@ -5,6 +5,7 @@ import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
 contract StakePortal {
     using SafeERC20 for IERC20;
+    using SafeMath for uint256;
 
     // Events
     event Stake(
@@ -25,6 +26,7 @@ contract StakePortal {
 
     mapping(address => bool) public stakePoolAddressExist;
     mapping(uint8 => bool) public chainIdExist;
+    mapping(uint8 => uint256) public bridgeFee;
 
     modifier onlyOwner() {
         require(owner == msg.sender, "caller is not the owner");
@@ -88,6 +90,14 @@ contract StakePortal {
         relayFee = _relayFee;
     }
 
+    function setBridgeFee(
+        uint8 _chainId,
+        uint256 _bridgeFee
+    ) external onlyOwner {
+        require(chainIdExist[_chainId], "chain id not exit");
+        bridgeFee[_chainId] = _bridgeFee;
+    }
+
     function toggleSwitch() external onlyOwner {
         stakeSwitch = !stakeSwitch;
     }
@@ -105,13 +115,16 @@ contract StakePortal {
         address _destRecipient
     ) public payable {
         require(stakeSwitch, "stake not open");
+        require(chainIdExist[_destChainId], "dest chain id not exit");
         require(_amount >= minAmount, "amount < minAmount");
-        require(msg.value >= relayFee, "relay fee not enough");
+        require(
+            msg.value >= relayFee.add(bridgeFee[_destChainId]),
+            "fee not enough"
+        );
         require(
             stakePoolAddressExist[_stakePoolAddress],
             "stake pool not exist"
         );
-        require(chainIdExist[_destChainId], "dest chain id not exit");
         require(
             _stafiRecipient != bytes32(0) && _destRecipient != address(0),
             "wrong recipient"
