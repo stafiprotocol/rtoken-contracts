@@ -1,10 +1,11 @@
 pragma solidity 0.7.6;
 // SPDX-License-Identifier: GPL-3.0-only
 
-import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import {SafeERC20, IERC20, SafeMath} from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
-contract StakePortalForProxy {
+contract StakeERC20Portal {
     using SafeERC20 for IERC20;
+    using SafeMath for uint256;
 
     // Events
     event Stake(
@@ -22,24 +23,23 @@ contract StakePortalForProxy {
     uint256 public relayFee;
     address public owner;
     bool public stakeSwitch;
-    bool public initialized;
 
     mapping(address => bool) public stakePoolAddressExist;
     mapping(uint8 => bool) public chainIdExist;
+    mapping(uint8 => uint256) public bridgeFee;
 
     modifier onlyOwner() {
         require(owner == msg.sender, "caller is not the owner");
         _;
     }
 
-    function initialize(
+    constructor(
         address[] memory _stakePoolAddressList,
         uint8[] memory _chainIdList,
         address _erc20TokenAddress,
         uint256 _minAmount,
         uint256 _relayFee
-    ) external {
-        require(!initialized, "already initialized");
+    ) {
         for (uint256 i = 0; i < _stakePoolAddressList.length; i++) {
             stakePoolAddressExist[_stakePoolAddressList[i]] = true;
         }
@@ -53,7 +53,6 @@ contract StakePortalForProxy {
         relayFee = _relayFee;
         owner = msg.sender;
         stakeSwitch = true;
-        initialized = true;
     }
 
     function transferOwnership(address _newOwner) public onlyOwner {
@@ -91,6 +90,14 @@ contract StakePortalForProxy {
         relayFee = _relayFee;
     }
 
+    function setBridgeFee(
+        uint8 _chainId,
+        uint256 _bridgeFee
+    ) external onlyOwner {
+        require(chainIdExist[_chainId], "chain id not exit");
+        bridgeFee[_chainId] = _bridgeFee;
+    }
+
     function toggleSwitch() external onlyOwner {
         stakeSwitch = !stakeSwitch;
     }
@@ -108,13 +115,16 @@ contract StakePortalForProxy {
         address _destRecipient
     ) public payable {
         require(stakeSwitch, "stake not open");
+        require(chainIdExist[_destChainId], "dest chain id not exit");
         require(_amount >= minAmount, "amount < minAmount");
-        require(msg.value >= relayFee, "relay fee not enough");
+        require(
+            msg.value >= relayFee.add(bridgeFee[_destChainId]),
+            "fee not enough"
+        );
         require(
             stakePoolAddressExist[_stakePoolAddress],
             "stake pool not exist"
         );
-        require(chainIdExist[_destChainId], "dest chain id not exit");
         require(
             _stafiRecipient != bytes32(0) && _destRecipient != address(0),
             "wrong recipient"

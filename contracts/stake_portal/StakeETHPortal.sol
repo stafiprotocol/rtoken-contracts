@@ -1,10 +1,9 @@
 pragma solidity 0.7.6;
 // SPDX-License-Identifier: GPL-3.0-only
 
-import "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
+import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";
 
-contract StakePortal {
-    using SafeERC20 for IERC20;
+contract StakeETHPortal {
     using SafeMath for uint256;
 
     // Events
@@ -18,7 +17,6 @@ contract StakePortal {
     );
     event RecoverStake(bytes32 txHash, bytes32 stafiRecipient);
 
-    address public erc20TokenAddress;
     uint256 public minAmount;
     uint256 public relayFee;
     address public owner;
@@ -36,7 +34,6 @@ contract StakePortal {
     constructor(
         address[] memory _stakePoolAddressList,
         uint8[] memory _chainIdList,
-        address _erc20TokenAddress,
         uint256 _minAmount,
         uint256 _relayFee
     ) {
@@ -48,7 +45,6 @@ contract StakePortal {
             chainIdExist[_chainIdList[i]] = true;
         }
 
-        erc20TokenAddress = _erc20TokenAddress;
         minAmount = _minAmount;
         relayFee = _relayFee;
         owner = msg.sender;
@@ -118,8 +114,8 @@ contract StakePortal {
         require(chainIdExist[_destChainId], "dest chain id not exit");
         require(_amount >= minAmount, "amount < minAmount");
         require(
-            msg.value >= relayFee.add(bridgeFee[_destChainId]),
-            "fee not enough"
+            msg.value >= _amount.add(relayFee).add(bridgeFee[_destChainId]),
+            "value not enough"
         );
         require(
             stakePoolAddressExist[_stakePoolAddress],
@@ -130,11 +126,8 @@ contract StakePortal {
             "wrong recipient"
         );
 
-        IERC20(erc20TokenAddress).safeTransferFrom(
-            msg.sender,
-            _stakePoolAddress,
-            _amount
-        );
+        (bool success, ) = _stakePoolAddress.call{value: _amount}("");
+        require(success, "ETH transfer failed");
 
         emit Stake(
             msg.sender,
