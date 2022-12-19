@@ -3,11 +3,10 @@ pragma solidity 0.7.6;
 // SPDX-License-Identifier: GPL-3.0-only
 
 import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/EnumerableSet.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/SafeCast.sol";
 
-contract MultisigOnchain is Ownable {
+contract MultisigOnchain {
     using SafeCast for *;
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeMath for uint256;
@@ -24,6 +23,7 @@ contract MultisigOnchain is Ownable {
         uint8 _yesVotesTotal;
     }
 
+    address public owner;
     uint8 public _threshold;
     EnumerableSet.AddressSet subAccounts;
 
@@ -44,6 +44,7 @@ contract MultisigOnchain is Ownable {
         for (uint256 i; i < initialSubAccountCount; i++) {
             subAccounts.add(initialSubAccounts[i]);
         }
+        owner = msg.sender;
     }
 
     modifier onlySubAccount() {
@@ -51,8 +52,18 @@ contract MultisigOnchain is Ownable {
         _;
     }
 
+    modifier onlyOwner() {
+        require(owner == msg.sender, "caller is not the owner");
+        _;
+    }
+
     // Function to receive Ether. msg.data must be empty
     receive() external payable {}
+
+    function transferOwnership(address _newOwner) public onlyOwner {
+        require(_newOwner != address(0), "new owner is the zero address");
+        owner = _newOwner;
+    }
 
     function addSubAccount(address subAccount) public onlyOwner {
         subAccounts.add(subAccount);
@@ -68,11 +79,6 @@ contract MultisigOnchain is Ownable {
             "invalid threshold"
         );
         _threshold = newThreshold.toUint8();
-    }
-
-    function withdraw() public onlyOwner {
-        (bool success, ) = msg.sender.call{value: address(this).balance}("");
-        require(success, "transfer failed");
     }
 
     function getSubAccountIndex(
