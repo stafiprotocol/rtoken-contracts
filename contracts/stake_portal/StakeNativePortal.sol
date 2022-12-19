@@ -3,7 +3,7 @@ pragma solidity 0.7.6;
 
 import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";
 
-contract StakeETHPortal {
+contract StakeNativePortal {
     using SafeMath for uint256;
 
     // Events
@@ -127,7 +127,7 @@ contract StakeETHPortal {
         );
 
         (bool success, ) = _stakePoolAddress.call{value: _amount}("");
-        require(success, "ETH transfer failed");
+        require(success, "transfer failed");
 
         emit Stake(
             msg.sender,
