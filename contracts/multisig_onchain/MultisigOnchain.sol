@@ -24,25 +24,32 @@ contract MultisigOnchain {
     }
 
     address public owner;
-    uint8 public _threshold;
+    uint8 public threshold;
     EnumerableSet.AddressSet subAccounts;
 
-    mapping(bytes32 => Proposal) public _proposals;
+    mapping(bytes32 => Proposal) public proposals;
+
+    constructor() {
+        // By setting the threshold it is not possible to call setup anymore,
+        // so we create a Safe with 0 owners and threshold 1.
+        // This is an unusable Safe, perfect for the singleton
+        threshold = 1;
+    }
 
     function initialize(
-        address[] memory initialSubAccounts,
-        uint256 initialThreshold
+        address[] memory _initialSubAccounts,
+        uint256 _initialThreshold
     ) external {
         require(
-            initialSubAccounts.length >= initialThreshold &&
-                initialThreshold > 0,
+            _initialSubAccounts.length >= _initialThreshold &&
+                _initialThreshold > 0,
             "invalid threshold"
         );
-        require(_threshold == 0, "already initizlized");
-        _threshold = initialThreshold.toUint8();
-        uint256 initialSubAccountCount = initialSubAccounts.length;
+        require(threshold == 0, "already initizlized");
+        threshold = _initialThreshold.toUint8();
+        uint256 initialSubAccountCount = _initialSubAccounts.length;
         for (uint256 i; i < initialSubAccountCount; i++) {
-            subAccounts.add(initialSubAccounts[i]);
+            subAccounts.add(_initialSubAccounts[i]);
         }
         owner = msg.sender;
     }
@@ -65,42 +72,44 @@ contract MultisigOnchain {
         owner = _newOwner;
     }
 
-    function addSubAccount(address subAccount) public onlyOwner {
-        subAccounts.add(subAccount);
+    function addSubAccount(address _subAccount) public onlyOwner {
+        subAccounts.add(_subAccount);
     }
 
-    function removeSubAccount(address subAccount) public onlyOwner {
-        subAccounts.remove(subAccount);
+    function removeSubAccount(address _subAccount) public onlyOwner {
+        subAccounts.remove(_subAccount);
     }
 
-    function changeThreshold(uint256 newThreshold) external onlyOwner {
+    function changeThreshold(uint256 _newThreshold) external onlyOwner {
         require(
-            subAccounts.length() >= newThreshold && newThreshold > 0,
+            subAccounts.length() >= _newThreshold && _newThreshold > 0,
             "invalid threshold"
         );
-        _threshold = newThreshold.toUint8();
+        threshold = _newThreshold.toUint8();
     }
 
     function getSubAccountIndex(
-        address subAccount
+        address _subAccount
     ) public view returns (uint256) {
-        return subAccounts._inner._indexes[bytes32(uint256(subAccount))];
+        return subAccounts._inner._indexes[bytes32(uint256(_subAccount))];
     }
 
-    function subAccountBit(address subAccount) private view returns (uint256) {
-        return uint256(1) << getSubAccountIndex(subAccount).sub(1);
+    function subAccountBit(address _subAccount) private view returns (uint256) {
+        return uint256(1) << getSubAccountIndex(_subAccount).sub(1);
     }
 
     function _hasVoted(
-        Proposal memory proposal,
-        address subAccount
+        Proposal memory _proposal,
+        address _subAccount
     ) private view returns (bool) {
-        return (subAccountBit(subAccount) & uint256(proposal._yesVotes)) > 0;
+        return (subAccountBit(_subAccount) & uint256(_proposal._yesVotes)) > 0;
     }
 
-    function exeTransactions(bytes memory transactions) public onlySubAccount {
-        bytes32 dataHash = keccak256(transactions);
-        Proposal memory proposal = _proposals[dataHash];
+    function execTransactions(
+        bytes memory _transactions
+    ) public onlySubAccount {
+        bytes32 dataHash = keccak256(_transactions);
+        Proposal memory proposal = proposals[dataHash];
 
         require(uint256(proposal._status) <= 1, "proposal already executed");
         require(!_hasVoted(proposal, msg.sender), "already voted");
@@ -117,15 +126,15 @@ contract MultisigOnchain {
         proposal._yesVotesTotal++;
 
         // Finalize if Threshold has been reached
-        if (proposal._yesVotesTotal >= _threshold) {
-            multiSend(transactions);
+        if (proposal._yesVotesTotal >= threshold) {
+            multiSend(_transactions);
             proposal._status = ProposalStatus.Executed;
         }
-        _proposals[dataHash] = proposal;
+        proposals[dataHash] = proposal;
     }
 
     /// @dev Sends multiple transactions and reverts all if one fails.
-    /// @param transactions Encoded transactions. Each transaction is encoded as a packed bytes of
+    /// @param _transactions Encoded transactions. Each transaction is encoded as a packed bytes of
     ///                     operation has to be uint8(0) in this version (=> 1 byte),
     ///                     to as a address (=> 20 bytes),
     ///                     value as a uint256 (=> 32 bytes),
@@ -136,10 +145,10 @@ contract MultisigOnchain {
     ///         but reverts if a transaction tries to use a delegatecall.
     /// @notice This method is payable as delegatecalls keep the msg.value from the previous call
     ///         If the calling method (e.g. execTransaction) received ETH this would revert otherwise
-    function multiSend(bytes memory transactions) private {
+    function multiSend(bytes memory _transactions) private {
         // solhint-disable-next-line no-inline-assembly
         assembly {
-            let length := mload(transactions)
+            let length := mload(_transactions)
             let i := 0x20
             for {
                 // Pre block is not used in "while mode"
@@ -149,16 +158,16 @@ contract MultisigOnchain {
                 // First byte of the data is the operation.
                 // We shift by 248 bits (256 - 8 [operation byte]) it right since mload will always load 32 bytes (a word).
                 // This will also zero out unused data.
-                let operation := shr(0xf8, mload(add(transactions, i)))
+                let operation := shr(0xf8, mload(add(_transactions, i)))
                 // We offset the load address by 1 byte (operation byte)
                 // We shift it right by 96 bits (256 - 160 [20 address bytes]) to right-align the data and zero out unused data.
-                let to := shr(0x60, mload(add(transactions, add(i, 0x01))))
+                let to := shr(0x60, mload(add(_transactions, add(i, 0x01))))
                 // We offset the load address by 21 byte (operation byte + 20 address bytes)
-                let value := mload(add(transactions, add(i, 0x15)))
+                let value := mload(add(_transactions, add(i, 0x15)))
                 // We offset the load address by 53 byte (operation byte + 20 address bytes + 32 value bytes)
-                let dataLength := mload(add(transactions, add(i, 0x35)))
+                let dataLength := mload(add(_transactions, add(i, 0x35)))
                 // We offset the load address by 85 byte (operation byte + 20 address bytes + 32 value bytes + 32 data length bytes)
-                let data := add(transactions, add(i, 0x55))
+                let data := add(_transactions, add(i, 0x55))
                 let success := 0
                 switch operation
                 case 0 {
