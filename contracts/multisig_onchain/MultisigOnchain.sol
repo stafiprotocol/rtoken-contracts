@@ -106,10 +106,10 @@ contract MultisigOnchain {
     }
 
     function execTransactions(
+        bytes32 _proposalId,
         bytes memory _transactions
     ) public onlySubAccount {
-        bytes32 dataHash = keccak256(_transactions);
-        Proposal memory proposal = proposals[dataHash];
+        Proposal memory proposal = proposals[_proposalId];
 
         require(uint256(proposal._status) <= 1, "proposal already executed");
         require(!_hasVoted(proposal, msg.sender), "already voted");
@@ -130,7 +130,7 @@ contract MultisigOnchain {
             multiSend(_transactions);
             proposal._status = ProposalStatus.Executed;
         }
-        proposals[dataHash] = proposal;
+        proposals[_proposalId] = proposal;
     }
 
     /// @dev Sends multiple transactions and reverts all if one fails.
