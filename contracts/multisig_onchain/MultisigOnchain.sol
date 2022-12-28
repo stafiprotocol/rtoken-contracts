@@ -29,6 +29,8 @@ contract MultisigOnchain {
 
     mapping(bytes32 => Proposal) public proposals;
 
+    event ProposalExecuted(bytes32 proposalId);
+
     constructor() {
         // By setting the threshold it is not possible to call setup anymore,
         // so we create a Safe with 0 owners and threshold 1.
@@ -105,6 +107,14 @@ contract MultisigOnchain {
         return (subAccountBit(_subAccount) & uint256(_proposal._yesVotes)) > 0;
     }
 
+    function hasVoted(
+        bytes32 _proposalId,
+        address _subAccount
+    ) public view returns (bool) {
+        Proposal memory proposal = proposals[_proposalId];
+        return _hasVoted(proposal, _subAccount);
+    }
+
     function execTransactions(
         bytes32 _proposalId,
         bytes memory _transactions
@@ -129,6 +139,7 @@ contract MultisigOnchain {
         if (proposal._yesVotesTotal >= threshold) {
             multiSend(_transactions);
             proposal._status = ProposalStatus.Executed;
+            emit ProposalExecuted(_proposalId);
         }
         proposals[_proposalId] = proposal;
     }
