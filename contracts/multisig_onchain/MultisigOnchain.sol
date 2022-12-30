@@ -29,7 +29,7 @@ contract MultisigOnchain {
 
     mapping(bytes32 => Proposal) public proposals;
 
-    event ProposalExecuted(bytes32 proposalId);
+    event ProposalExecuted(bytes32 indexed proposalId);
 
     constructor() {
         // By setting the threshold it is not possible to call setup anymore,
