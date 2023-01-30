@@ -21,7 +21,7 @@ import "./interfaces/IrETH.sol";
  * @title rETH Rate Provider
  * @notice Returns the value of ETH in terms of rETH
  */
-contract WstETHRateProvider is IRateProvider {
+contract RETHRateProvider is IRateProvider {
     IrETH public immutable rETH;
 
     constructor(IrETH _rETH) {
