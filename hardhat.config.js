@@ -14,7 +14,7 @@ module.exports = {
     version: "0.7.6",
     settings: {
       optimizer: {
-        enabled: false,
+        enabled: true,
         runs: 200
       }
     }
@@ -38,6 +38,9 @@ module.exports = {
     },
     goerli: {
       url: `https://goerli.infura.io/v3/${process.env.INFURA_KEY}`,
+    },
+    bscmainnet: {
+      url: `https://rpc.ankr.com/bsc`,
     }
   },
   defaultNetwork: "hardhat",
