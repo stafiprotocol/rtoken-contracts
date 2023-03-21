@@ -60,9 +60,7 @@ contract StakeERC20Portal {
         owner = _newOwner;
     }
 
-    function addStakePool(
-        address[] memory _stakePoolAddressList
-    ) external onlyOwner {
+    function addStakePool(address[] memory _stakePoolAddressList) external onlyOwner {
         for (uint256 i = 0; i < _stakePoolAddressList.length; i++) {
             stakePoolAddressExist[_stakePoolAddressList[i]] = true;
         }
@@ -90,10 +88,7 @@ contract StakeERC20Portal {
         relayFee = _relayFee;
     }
 
-    function setBridgeFee(
-        uint8 _chainId,
-        uint256 _bridgeFee
-    ) external onlyOwner {
+    function setBridgeFee(uint8 _chainId, uint256 _bridgeFee) external onlyOwner {
         require(chainIdExist[_chainId], "chain id not exit");
         bridgeFee[_chainId] = _bridgeFee;
     }
@@ -117,40 +112,17 @@ contract StakeERC20Portal {
         require(stakeSwitch, "stake not open");
         require(chainIdExist[_destChainId], "dest chain id not exit");
         require(_amount >= minAmount, "amount < minAmount");
-        require(
-            msg.value >= relayFee.add(bridgeFee[_destChainId]),
-            "fee not enough"
-        );
-        require(
-            stakePoolAddressExist[_stakePoolAddress],
-            "stake pool not exist"
-        );
-        require(
-            _stafiRecipient != bytes32(0) && _destRecipient != address(0),
-            "wrong recipient"
-        );
+        require(msg.value >= relayFee.add(bridgeFee[_destChainId]), "fee not enough");
+        require(stakePoolAddressExist[_stakePoolAddress], "stake pool not exist");
+        require(_stafiRecipient != bytes32(0) && _destRecipient != address(0), "wrong recipient");
 
-        IERC20(erc20TokenAddress).safeTransferFrom(
-            msg.sender,
-            _stakePoolAddress,
-            _amount
-        );
+        IERC20(erc20TokenAddress).safeTransferFrom(msg.sender, _stakePoolAddress, _amount);
 
-        emit Stake(
-            msg.sender,
-            _stakePoolAddress,
-            _amount,
-            _destChainId,
-            _stafiRecipient,
-            _destRecipient
-        );
+        emit Stake(msg.sender, _stakePoolAddress, _amount, _destChainId, _stafiRecipient, _destRecipient);
     }
 
     function recoverStake(bytes32 _txHash, bytes32 _stafiRecipient) public {
-        require(
-            _txHash != bytes32(0) && _stafiRecipient != bytes32(0),
-            "wrong txHash or recipient"
-        );
+        require(_txHash != bytes32(0) && _stafiRecipient != bytes32(0), "wrong txHash or recipient");
 
         emit RecoverStake(_txHash, _stafiRecipient);
     }
