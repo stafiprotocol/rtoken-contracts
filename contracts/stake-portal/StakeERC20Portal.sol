@@ -17,19 +17,22 @@ contract StakeERC20Portal is Multisig, IRateProvider {
     address public stakeUsePoolAddress;
     address public rTokenAddress;
     uint256 public minStakeAmount;
-    uint256 public relayFee;
-    uint256 public protocolFeeCommission; // decimals 18
+    uint256 public stakeRelayFee;
+    uint256 public unstakeRelayFee;
+    uint256 public unstakeFeeCommission; // decimals 18
+    uint256 private rate; // decimals 18
+    uint256 public rateChangeLimit; // decimals 18
+    uint256 public totalUnstakeProtocolFee;
     bool public stakeSwitch;
     bool public stakeCrossSwitch;
-    uint256 rate; // decimals 18
 
     mapping(address => bool) public stakePoolAddressExist;
     mapping(uint8 => bool) public chainIdExist;
     mapping(uint8 => uint256) public bridgeFee;
 
     // events
-    event Stake(address staker, address stakePool, uint256 tokenAmount, uint256 rtokenAmount);
-    event Unstake(address staker, address stakePool, uint256 tokenAmount, uint256 rtokenAmount, uint256 burnAmount);
+    event Stake(address staker, address stakePool, uint256 tokenAmount, uint256 rTokenAmount);
+    event Unstake(address staker, address stakePool, uint256 tokenAmount, uint256 rTokenAmount, uint256 burnAmount);
     event StakeAndCross(
         address staker,
         address stakePool,
@@ -48,8 +51,9 @@ contract StakeERC20Portal is Multisig, IRateProvider {
         address _rTokenAddress,
         address _stakeUsePoolAddress,
         uint256 _minStakeAmount,
-        uint256 _relayFee,
-        uint256 _protocolFeeCommission,
+        uint256 _stakeRelayFee,
+        uint256 _unstakeRelayFee,
+        uint256 _unstakeFeeCommission,
         uint256 _rate,
         uint256 _initialThreshold
     ) Multisig(_initialSubAccounts, _initialThreshold) {
@@ -67,10 +71,11 @@ contract StakeERC20Portal is Multisig, IRateProvider {
         rTokenAddress = _rTokenAddress;
         minStakeAmount = _minStakeAmount;
         stakeUsePoolAddress = _stakeUsePoolAddress;
-        relayFee = _relayFee;
-        protocolFeeCommission = _protocolFeeCommission;
+        stakeRelayFee = _stakeRelayFee;
+        unstakeRelayFee = _unstakeRelayFee;
+        unstakeFeeCommission = _unstakeFeeCommission;
         rate = _rate;
-        stakeSwitch = false;
+        rateChangeLimit = 1e15; // 0.1%
         stakeCrossSwitch = true;
     }
 
@@ -105,8 +110,12 @@ contract StakeERC20Portal is Multisig, IRateProvider {
         minStakeAmount = _minStakeAmount;
     }
 
-    function setRelayFee(uint256 _relayFee) external onlyOwner {
-        relayFee = _relayFee;
+    function setStakeRelayFee(uint256 _stakeRelayFee) external onlyOwner {
+        stakeRelayFee = _stakeRelayFee;
+    }
+
+    function setUnstakeRelayFee(uint256 _unstakeRelayFee) external onlyOwner {
+        unstakeRelayFee = _unstakeRelayFee;
     }
 
     function setRate(uint256 _rate) external onlyOwner {
@@ -114,8 +123,12 @@ contract StakeERC20Portal is Multisig, IRateProvider {
         rate = _rate;
     }
 
-    function setProtocolFeeCommission(uint256 _protocolFeeCommission) external onlyOwner {
-        protocolFeeCommission = _protocolFeeCommission;
+    function setRateChangeLimit(uint256 _rateChangeLimit) external onlyOwner {
+        rateChangeLimit = _rateChangeLimit;
+    }
+
+    function setUnstakeFeeCommission(uint256 _unstakeFeeCommission) external onlyOwner {
+        unstakeFeeCommission = _unstakeFeeCommission;
     }
 
     function setBridgeFee(uint8 _chainId, uint256 _bridgeFee) external onlyOwner {
@@ -140,7 +153,9 @@ contract StakeERC20Portal is Multisig, IRateProvider {
     // ----- vote
 
     function voteRate(bytes32 _proposalId, uint256 _rate) public onlySubAccount {
-        require(rate > 0, "rate zero");
+        uint256 rateChange = _rate > rate ? _rate.sub(rate) : rate.sub(_rate);
+        require(rateChange.mul(1e18).div(rate) < rateChangeLimit, "rate change over limit");
+
         Proposal memory proposal = proposals[_proposalId];
 
         require(uint256(proposal._status) <= 1, "proposal already executed");
@@ -175,7 +190,7 @@ contract StakeERC20Portal is Multisig, IRateProvider {
     function stakeWithPool(uint256 _amount, address _stakePoolAddress) public payable {
         require(stakeSwitch, "stake not open");
         require(_amount >= minStakeAmount, "amount < minStakeAmount");
-        require(msg.value >= relayFee, "fee not enough");
+        require(msg.value >= stakeRelayFee, "fee not enough");
         require(stakePoolAddressExist[_stakePoolAddress], "stake pool not exist");
 
         uint256 rTokenAmount = _amount.mul(1e18).div(rate);
@@ -195,11 +210,11 @@ contract StakeERC20Portal is Multisig, IRateProvider {
     function unstakeWithPool(uint256 _rTokenAmount, address _stakePoolAddress) public payable {
         require(stakeSwitch, "stake not open");
         require(_rTokenAmount >= 0, "amount zero");
-        require(msg.value >= relayFee, "relay fee not enough");
+        require(msg.value >= unstakeRelayFee, "relay fee not enough");
         require(stakePoolAddressExist[_stakePoolAddress], "stake pool not exist");
 
-        uint256 protocolFee = _rTokenAmount.mul(protocolFeeCommission).div(1e18);
-        uint256 leftRTokenAmount = _rTokenAmount.sub(protocolFee);
+        uint256 unstakeFee = _rTokenAmount.mul(unstakeFeeCommission).div(1e18);
+        uint256 leftRTokenAmount = _rTokenAmount.sub(unstakeFee);
         uint256 tokenAmount = leftRTokenAmount.mul(rate).div(1e18);
 
         // burn rtoken
@@ -207,9 +222,11 @@ contract StakeERC20Portal is Multisig, IRateProvider {
         rtoken.burnFrom(msg.sender, leftRTokenAmount);
 
         // fee
-        IERC20(rTokenAddress).safeTransferFrom(msg.sender, owner, protocolFee);
+        IERC20(rTokenAddress).safeTransferFrom(msg.sender, owner, unstakeFee);
         (bool success, ) = owner.call{value: msg.value}("");
         require(success, "failed to send fee");
+
+        totalUnstakeProtocolFee = totalUnstakeProtocolFee.add(unstakeFee);
 
         emit Unstake(msg.sender, _stakePoolAddress, tokenAmount, _rTokenAmount, leftRTokenAmount);
     }
@@ -224,7 +241,7 @@ contract StakeERC20Portal is Multisig, IRateProvider {
         require(stakeCrossSwitch, "stake cross not open");
         require(chainIdExist[_destChainId], "dest chain id not exit");
         require(_amount >= minStakeAmount, "amount < minStakeAmount");
-        require(msg.value >= relayFee.add(bridgeFee[_destChainId]), "fee not enough");
+        require(msg.value >= stakeRelayFee.add(bridgeFee[_destChainId]), "fee not enough");
         require(stakePoolAddressExist[_stakePoolAddress], "stake pool not exist");
         require(_stafiRecipient != bytes32(0) && _destRecipient != address(0), "wrong recipient");
 
