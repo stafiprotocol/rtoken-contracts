@@ -15,16 +15,15 @@
 pragma solidity ^0.7.6;
 
 import "./interfaces/IRateProvider.sol";
-import "./interfaces/IrMATICRate.sol";
 
 /**
  * @title rMATIC Rate Provider
  * @notice Returns the value of MATIC in terms of rMATIC
  */
 contract RMATICRateProvider is IRateProvider {
-    IrMATICRate public immutable rMATICRate;
+    IRateProvider public immutable rMATICRate;
 
-    constructor(IrMATICRate _rMATICRate) {
+    constructor(IRateProvider _rMATICRate) {
         rMATICRate = _rMATICRate;
     }
 
