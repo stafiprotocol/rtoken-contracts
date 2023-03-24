@@ -4,7 +4,7 @@ pragma solidity 0.7.6;
 import "../balancer-metastable-rate-providers/interfaces/IRateProvider.sol";
 import "./Multisig.sol";
 
-contract StakeERC20PortalOnlyRate is Multisig, IRateProvider {
+contract StakePortalRate is Multisig, IRateProvider {
     using SafeCast for *;
     using SafeMath for uint256;
 
