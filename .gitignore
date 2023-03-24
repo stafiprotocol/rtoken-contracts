@@ -7,3 +7,4 @@ cache/
 deployments/
 yarn-error.log
 ./typechain
+arguments.js
