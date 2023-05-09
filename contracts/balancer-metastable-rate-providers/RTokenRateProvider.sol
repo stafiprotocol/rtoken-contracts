@@ -21,7 +21,7 @@ import "./interfaces/IRateProvider.sol";
  * @notice Returns the value of Token in terms of rToken
  */
 contract RTokenRateProvider is IRateProvider {
-    IRateProvider public immutable rateProvider;
+    IRateProvider public rateProvider;
     address public owner;
 
     constructor(IRateProvider _rateProvider) {
