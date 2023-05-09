@@ -33,7 +33,7 @@ module.exports = {
         'cf9021015de4fe7559b981e098f46659b7f9a9dc28e89b7f554936c7aadaf822', // 
       ],
     },
-    mainnet: {
+    ethMainnet: {
       url: `https://eth-mainnet.g.alchemy.com/v2/${process.env.ALCHEMY_API_KEY}`,
     },
     goerli: {
@@ -41,6 +41,9 @@ module.exports = {
     },
     bscmainnet: {
       url: `https://rpc.ankr.com/bsc`,
+    },
+    polygonMainnet: {
+      url: `https://rpc.ankr.com/polygon`,
     }
   },
   defaultNetwork: "hardhat",
