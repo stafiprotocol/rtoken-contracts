@@ -2,9 +2,11 @@ pragma solidity 0.7.6;
 // SPDX-License-Identifier: GPL-3.0-only
 
 import {SafeERC20, IERC20, SafeMath} from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
-import "@openzeppelin/contracts/presets/ERC20PresetMinterPauser.sol";
 import "../balancer-metastable-rate-providers/interfaces/IRateProvider.sol";
 import "../stake-portal/Multisig.sol";
+import "./Types.sol";
+import "./IStakePool.sol";
+import "./IERC20MintBurn.sol";
 
 contract StakeManager is Multisig, IRateProvider {
     using SafeCast for *;
@@ -14,40 +16,18 @@ contract StakeManager is Multisig, IRateProvider {
     using EnumerableSet for EnumerableSet.UintSet;
 
     // ---- storage
-    enum EraState {
-        Undefined,
-        NewEraExecuted,
-        OperateExecuted,
-        OperateAckExecuted
-    }
-
-    struct PoolInfo {
-        uint256 currentEra;
-        EraState eraState;
-        uint256 bond;
-        uint256 unbond;
-        uint256 active;
-    }
-
-    struct Snapshot {
-        uint256 bond;
-        uint256 unbond;
-        uint256 active;
-    }
-
-    struct UnstakeInfo {
-        uint256 era;
-        address receiver;
-        uint256 amount;
-    }
 
     address public rTokenAddress;
     uint256 public minStakeAmount;
     uint256 public unstakeFeeCommission; // decimals 18
-    uint256 private rate; // decimals 18
     uint256 public rateChangeLimit; // decimals 18
-    uint256 public totalUnstakeProtocolFee;
     bool public stakeSwitch;
+
+    uint256 public currentEra;
+    EraState public currentEraState;
+    uint256 private rate; //need migrate decimals 18
+    uint256 public totalRTokenSupply; //need migrate
+    uint256 public totalProtocolFee; //need migrate
 
     uint256 public eraSeconds;
     uint256 nextUnstakeIndex;
@@ -58,6 +38,7 @@ contract StakeManager is Multisig, IRateProvider {
     mapping(address => Snapshot) snapshotOf;
     mapping(address => uint256) pendingDelegateOf;
     mapping(address => uint256) pendingUndelegateOf;
+
     mapping(uint256 => UnstakeInfo) unstakeAtIndex;
     mapping(address => EnumerableSet.UintSet) unstakeOfUser;
 
@@ -126,56 +107,41 @@ contract StakeManager is Multisig, IRateProvider {
         return rate;
     }
 
+    function allPoolEraStateIs(EraState eraState, bool skipUninitialized) public view returns (bool) {
+        uint256 poolLength = bondedPools.length();
+        for (uint256 i = 0; i < poolLength; i++) {
+            PoolInfo memory poolInfo = poolInfoOf[bondedPools.at(i)];
+            if (skipUninitialized && poolInfo.eraState == EraState.Uninitialized) {
+                continue;
+            }
+            if (poolInfo.eraState != eraState) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     // ----- vote
 
     function newEra(
         uint256 _era,
-        address _poolAddress,
-        uint256 _undistributedReward,
-        uint256 _latestRewardTimestamp
+        address[] calldata _poolAddressList,
+        uint256[] calldata _undistributedRewardList,
+        uint256[] calldata _latestRewardTimestampList
     ) public onlySubAccount {
-        bytes32 proposalId = keccak256(abi.encodePacked("newEra", _era, _poolAddress));
-        Proposal memory proposal = proposals[proposalId];
-
-        require(uint256(proposal._status) <= 1, "proposal already executed");
-        require(!_hasVoted(proposal, msg.sender), "already voted");
-
-        if (proposal._status == ProposalStatus.Inactive) {
-            proposal = Proposal({_status: ProposalStatus.Active, _yesVotes: 0, _yesVotesTotal: 0});
-        }
-        proposal._yesVotes = (proposal._yesVotes | subAccountBit(msg.sender)).toUint16();
-        proposal._yesVotesTotal++;
+        bytes32 proposalId = keccak256(
+            abi.encodePacked("newEra", _era, _poolAddressList, _undistributedRewardList, _latestRewardTimestampList)
+        );
+        Proposal memory proposal = checkProposal(proposalId);
 
         // Finalize if Threshold has been reached
         if (proposal._yesVotesTotal >= threshold) {
-            uint256 currentEra = block.timestamp.div(eraSeconds);
-            require(currentEra >= _era, "era not match");
-            require(latestRewardTimestampOf[_poolAddress] <= _latestRewardTimestamp, "reward timestamp not match");
-
-            if (_undistributedReward > 0) {
-                undistributedRewardOf[_poolAddress] = undistributedRewardOf[_poolAddress].add(_undistributedReward);
-            }
-
-            PoolInfo memory poolInfo = poolInfoOf[_poolAddress];
-            if (poolInfo.currentEra > 0) {
-                require(_era == poolInfo.currentEra.add(1), "era not match");
-                require(poolInfo.eraState == EraState.OperateAckExecuted, "state not match");
-            }
-
-            poolInfo.currentEra = _era;
-            poolInfo.eraState = EraState.NewEraExecuted;
-            snapshotOf[_poolAddress] = Snapshot({
-                bond: poolInfo.bond,
-                unbond: poolInfo.unbond,
-                active: poolInfo.active
-            });
-
-            pendingDelegateOf[_poolAddress] = pendingDelegateOf[_poolAddress].add(poolInfo.bond);
-            pendingUndelegateOf[_poolAddress] = pendingUndelegateOf[_poolAddress].add(poolInfo.unbond);
+            exeNewEra(_era, _poolAddressList, _undistributedRewardList, _latestRewardTimestampList);
 
             proposal._status = ProposalStatus.Executed;
             emit ProposalExecuted(proposalId);
         }
+
         proposals[proposalId] = proposal;
     }
 
@@ -188,11 +154,15 @@ contract StakeManager is Multisig, IRateProvider {
 
         uint256 rTokenAmount = msg.value.mul(1e18).div(rate);
 
+        // update pool
+        PoolInfo storage poolInfo = poolInfoOf[_stakePoolAddress];
+        poolInfo.bond = poolInfo.bond.add(msg.value);
+        poolInfo.active = poolInfo.active.add(msg.value);
+
         // transfer token and mint rtoken
         (bool success, ) = _stakePoolAddress.call{value: msg.value}("");
         require(success, "transfer failed");
-        ERC20PresetMinterPauser rToken = ERC20PresetMinterPauser(rTokenAddress);
-        rToken.mint(msg.sender, rTokenAmount);
+        IERC20MintBurn(rTokenAddress).mint(msg.sender, rTokenAmount);
 
         emit Stake(msg.sender, _stakePoolAddress, msg.value, rTokenAmount);
     }
@@ -206,22 +176,23 @@ contract StakeManager is Multisig, IRateProvider {
         uint256 leftRTokenAmount = _rTokenAmount.sub(unstakeFee);
         uint256 tokenAmount = leftRTokenAmount.mul(rate).div(1e18);
 
+        // update pool
+        PoolInfo storage poolInfo = poolInfoOf[_stakePoolAddress];
+        poolInfo.unbond = poolInfo.unbond.add(tokenAmount);
+        poolInfo.active = poolInfo.active.sub(tokenAmount);
+
         // burn rtoken
-        ERC20PresetMinterPauser rtoken = ERC20PresetMinterPauser(rTokenAddress);
-        rtoken.burnFrom(msg.sender, leftRTokenAmount);
+        IERC20MintBurn(rTokenAddress).burnFrom(msg.sender, leftRTokenAmount);
 
         // fee
         IERC20(rTokenAddress).safeTransferFrom(msg.sender, owner, unstakeFee);
 
-        totalUnstakeProtocolFee = totalUnstakeProtocolFee.add(unstakeFee);
-        PoolInfo memory pool = poolInfoOf[_stakePoolAddress];
-        unstakeAtIndex[nextUnstakeIndex] = UnstakeInfo({
-            era: pool.currentEra,
-            receiver: msg.sender,
-            amount: tokenAmount
-        });
+        totalProtocolFee = totalProtocolFee.add(unstakeFee);
+
+        unstakeAtIndex[nextUnstakeIndex] = UnstakeInfo({era: currentEra, receiver: msg.sender, amount: tokenAmount});
 
         unstakeOfUser[msg.sender].add(nextUnstakeIndex);
+
         nextUnstakeIndex = nextUnstakeIndex.add(1);
 
         emit Unstake(msg.sender, _stakePoolAddress, tokenAmount, _rTokenAmount, leftRTokenAmount);
@@ -233,14 +204,92 @@ contract StakeManager is Multisig, IRateProvider {
         uint256 totalAmount;
         for (uint256 i = 0; i < _unstakeIndexList.length; i++) {
             uint256 unstakeIndex = _unstakeIndexList[i];
+            UnstakeInfo memory unstakeInfo = unstakeAtIndex[unstakeIndex];
+
+            require(unstakeInfo.era <= currentEra, "not claimable");
             require(unstakeOfUser[msg.sender].remove(unstakeIndex), "already claimed");
 
-            totalAmount = totalAmount.add(unstakeAtIndex[unstakeIndex].amount);
+            totalAmount = totalAmount.add(unstakeInfo.amount);
         }
 
         if (totalAmount > 0) {
             (bool result, ) = msg.sender.call{value: totalAmount}("");
             require(result, "user failed to claim ETH");
         }
+    }
+
+    // ----- helper
+
+    function checkProposal(bytes32 _proposalId) private view returns (Proposal memory proposal) {
+        proposal = proposals[_proposalId];
+
+        require(uint256(proposal._status) <= 1, "proposal already executed");
+        require(!_hasVoted(proposal, msg.sender), "already voted");
+
+        if (proposal._status == ProposalStatus.Inactive) {
+            proposal = Proposal({_status: ProposalStatus.Active, _yesVotes: 0, _yesVotesTotal: 0});
+        }
+        proposal._yesVotes = (proposal._yesVotes | subAccountBit(msg.sender)).toUint16();
+        proposal._yesVotesTotal++;
+    }
+
+    function exeNewEra(
+        uint256 _era,
+        address[] calldata _poolAddressList,
+        uint256[] calldata _undistributedRewardList,
+        uint256[] calldata _latestRewardTimestampList
+    ) private {
+        require(block.timestamp.div(eraSeconds) >= _era, "not match calEra");
+        require(currentEra == 0 || _era == currentEra.add(1), "not match currentEra");
+        require(allPoolEraStateIs(EraState.OperateAckExecuted, true), "era not continuable");
+
+        for (uint256 i = 0; i < _poolAddressList.length; i++) {
+            require(_latestRewardTimestampList[i] < block.timestamp, "timestamp not match");
+            require(
+                latestRewardTimestampOf[_poolAddressList[i]] <= _latestRewardTimestampList[i],
+                "reward timestamp not match"
+            );
+            address poolAddress = _poolAddressList[i];
+
+            // update undistributedReward
+            if (_undistributedRewardList[i] > 0) {
+                undistributedRewardOf[poolAddress] = undistributedRewardOf[poolAddress].add(
+                    _undistributedRewardList[i]
+                );
+            }
+
+            PoolInfo memory poolInfo = poolInfoOf[poolAddress];
+
+            // update pool state
+            poolInfo.eraState = EraState.NewEraExecuted;
+            poolInfoOf[poolAddress] = poolInfo;
+
+            // update snapshot
+            snapshotOf[poolAddress] = Snapshot({
+                era: _era,
+                bond: poolInfo.bond,
+                unbond: poolInfo.unbond,
+                active: poolInfo.active
+            });
+
+            // update pending value
+            pendingDelegateOf[poolAddress] = pendingDelegateOf[poolAddress].add(poolInfo.bond);
+            pendingUndelegateOf[poolAddress] = pendingUndelegateOf[poolAddress].add(poolInfo.unbond);
+
+            // claim distributed reward
+            uint256 claimedReward = IStakePool(poolAddress).checkAndClaimReward();
+            if (claimedReward > 0) {
+                undistributedRewardOf[poolAddress] = undistributedRewardOf[poolAddress].sub(claimedReward);
+                pendingDelegateOf[poolAddress] = pendingDelegateOf[poolAddress].add(claimedReward);
+            }
+
+            // claim undelegated
+            IStakePool(poolAddress).checkAndClaimUndelegated();
+        }
+
+        require(allPoolEraStateIs(EraState.NewEraExecuted, false), "missing pool");
+
+        currentEra = _era;
+        currentEraState = EraState.NewEraExecuted;
     }
 }
