@@ -10,6 +10,8 @@ contract StakeManager is Multisig, IRateProvider {
     using SafeCast for *;
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
+    using EnumerableSet for EnumerableSet.AddressSet;
+    using EnumerableSet for EnumerableSet.UintSet;
 
     // ---- storage
     enum EraState {
@@ -33,6 +35,12 @@ contract StakeManager is Multisig, IRateProvider {
         uint256 active;
     }
 
+    struct UnstakeInfo {
+        uint256 era;
+        address receiver;
+        uint256 amount;
+    }
+
     address public rTokenAddress;
     uint256 public minStakeAmount;
     uint256 public unstakeFeeCommission; // decimals 18
@@ -41,15 +49,17 @@ contract StakeManager is Multisig, IRateProvider {
     uint256 public totalUnstakeProtocolFee;
     bool public stakeSwitch;
 
-    mapping(address => bool) public stakePoolAddressExist;
-
     uint256 public eraSeconds;
+    uint256 nextUnstakeIndex;
+    EnumerableSet.AddressSet bondedPools;
     mapping(address => PoolInfo) poolInfoOf;
     mapping(address => uint256) latestRewardTimestampOf;
     mapping(address => uint256) undistributedRewardOf;
     mapping(address => Snapshot) snapshotOf;
     mapping(address => uint256) pendingDelegateOf;
     mapping(address => uint256) pendingUndelegateOf;
+    mapping(uint256 => UnstakeInfo) unstakeAtIndex;
+    mapping(address => EnumerableSet.UintSet) unstakeOfUser;
 
     // events
     event Stake(address staker, address stakePool, uint256 tokenAmount, uint256 rTokenAmount);
@@ -65,7 +75,7 @@ contract StakeManager is Multisig, IRateProvider {
         uint256 _initialThreshold
     ) Multisig(_initialSubAccounts, _initialThreshold) {
         for (uint256 i = 0; i < _stakePoolAddressList.length; i++) {
-            stakePoolAddressExist[_stakePoolAddressList[i]] = true;
+            bondedPools.add(_stakePoolAddressList[i]);
         }
 
         require(_rate > 0, "rate zero");
@@ -81,12 +91,12 @@ contract StakeManager is Multisig, IRateProvider {
 
     function addStakePool(address[] memory _stakePoolAddressList) external onlyOwner {
         for (uint256 i = 0; i < _stakePoolAddressList.length; i++) {
-            stakePoolAddressExist[_stakePoolAddressList[i]] = true;
+            bondedPools.add(_stakePoolAddressList[i]);
         }
     }
 
     function rmStakePool(address _stakePoolAddress) external onlyOwner {
-        delete stakePoolAddressExist[_stakePoolAddress];
+        bondedPools.remove(_stakePoolAddress);
     }
 
     function setMinStakeAmount(uint256 _minStakeAmount) external onlyOwner {
@@ -174,7 +184,7 @@ contract StakeManager is Multisig, IRateProvider {
     function stake(address _stakePoolAddress) public payable {
         require(stakeSwitch, "stake not open");
         require(msg.value >= minStakeAmount, "amount < minStakeAmount");
-        require(stakePoolAddressExist[_stakePoolAddress], "stake pool not exist");
+        require(bondedPools.contains(_stakePoolAddress), "stake pool not exist");
 
         uint256 rTokenAmount = msg.value.mul(1e18).div(rate);
 
@@ -190,7 +200,7 @@ contract StakeManager is Multisig, IRateProvider {
     function unstake(uint256 _rTokenAmount, address _stakePoolAddress) public payable {
         require(stakeSwitch, "stake not open");
         require(_rTokenAmount >= 0, "amount zero");
-        require(stakePoolAddressExist[_stakePoolAddress], "stake pool not exist");
+        require(bondedPools.contains(_stakePoolAddress), "stake pool not exist");
 
         uint256 unstakeFee = _rTokenAmount.mul(unstakeFeeCommission).div(1e18);
         uint256 leftRTokenAmount = _rTokenAmount.sub(unstakeFee);
@@ -204,7 +214,33 @@ contract StakeManager is Multisig, IRateProvider {
         IERC20(rTokenAddress).safeTransferFrom(msg.sender, owner, unstakeFee);
 
         totalUnstakeProtocolFee = totalUnstakeProtocolFee.add(unstakeFee);
+        PoolInfo memory pool = poolInfoOf[_stakePoolAddress];
+        unstakeAtIndex[nextUnstakeIndex] = UnstakeInfo({
+            era: pool.currentEra,
+            receiver: msg.sender,
+            amount: tokenAmount
+        });
+
+        unstakeOfUser[msg.sender].add(nextUnstakeIndex);
+        nextUnstakeIndex = nextUnstakeIndex.add(1);
 
         emit Unstake(msg.sender, _stakePoolAddress, tokenAmount, _rTokenAmount, leftRTokenAmount);
+    }
+
+    function claim(uint256[] calldata _unstakeIndexList) public {
+        require(_unstakeIndexList.length > 0, "index list empty");
+
+        uint256 totalAmount;
+        for (uint256 i = 0; i < _unstakeIndexList.length; i++) {
+            uint256 unstakeIndex = _unstakeIndexList[i];
+            require(unstakeOfUser[msg.sender].remove(unstakeIndex), "already claimed");
+
+            totalAmount = totalAmount.add(unstakeAtIndex[unstakeIndex].amount);
+        }
+
+        if (totalAmount > 0) {
+            (bool result, ) = msg.sender.call{value: totalAmount}("");
+            require(result, "user failed to claim ETH");
+        }
     }
 }
