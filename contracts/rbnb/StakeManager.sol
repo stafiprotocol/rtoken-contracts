@@ -3,7 +3,7 @@ pragma solidity 0.7.6;
 
 import {SafeERC20, IERC20, SafeMath} from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 import "../balancer-metastable-rate-providers/interfaces/IRateProvider.sol";
-import "../stake-portal/Multisig.sol";
+import "./Multisig.sol";
 import "./Types.sol";
 import "./IStakePool.sol";
 import "./IERC20MintBurn.sol";
@@ -20,6 +20,7 @@ contract StakeManager is Multisig, IRateProvider {
     address public rTokenAddress;
     uint256 public minStakeAmount;
     uint256 public unstakeFeeCommission; // decimals 18
+    uint256 public protocolFeeCommission; // decimals 18
     uint256 public rateChangeLimit; // decimals 18
     bool public stakeSwitch;
 
@@ -38,6 +39,7 @@ contract StakeManager is Multisig, IRateProvider {
     mapping(address => Snapshot) snapshotOf;
     mapping(address => uint256) pendingDelegateOf;
     mapping(address => uint256) pendingUndelegateOf;
+    mapping(uint256 => mapping(address => Operate)) pendingOperate;
 
     mapping(uint256 => UnstakeInfo) unstakeAtIndex;
     mapping(address => EnumerableSet.UintSet) unstakeOfUser;
@@ -46,31 +48,45 @@ contract StakeManager is Multisig, IRateProvider {
     event Stake(address staker, address stakePool, uint256 tokenAmount, uint256 rTokenAmount);
     event Unstake(address staker, address stakePool, uint256 tokenAmount, uint256 rTokenAmount, uint256 burnAmount);
 
-    constructor(
-        address[] memory _stakePoolAddressList,
-        address[] memory _initialSubAccounts,
+    function init(
+        address[] calldata _initialSubAccounts,
+        uint256 _initialThreshold,
+        address _stakePoolAddress,
+        uint256 _bond,
+        uint256 _unbond,
+        uint256 _active,
+        uint256 _rate,
+        uint256 _totalRTokenSupply,
+        uint256 _totalProtocolFee,
         address _rTokenAddress,
         uint256 _minStakeAmount,
-        uint256 _unstakeFeeCommission,
-        uint256 _rate,
-        uint256 _initialThreshold
-    ) Multisig(_initialSubAccounts, _initialThreshold) {
-        for (uint256 i = 0; i < _stakePoolAddressList.length; i++) {
-            bondedPools.add(_stakePoolAddressList[i]);
-        }
+        uint256 _unstakeFeeCommission
+    ) public {
+        initMultisig(_initialSubAccounts, _initialThreshold);
+
+        bondedPools.add(_stakePoolAddress);
+        poolInfoOf[_stakePoolAddress] = PoolInfo({
+            eraState: EraState.OperateAckExecuted,
+            bond: _bond,
+            unbond: _unbond,
+            active: _active
+        });
 
         require(_rate > 0, "rate zero");
+        rate = _rate;
 
         rTokenAddress = _rTokenAddress;
         minStakeAmount = _minStakeAmount;
         unstakeFeeCommission = _unstakeFeeCommission;
-        rate = _rate;
         rateChangeLimit = 1e15; // 0.1%
+        protocolFeeCommission = 1e17;
+        totalRTokenSupply = _totalRTokenSupply;
+        totalProtocolFee = _totalProtocolFee;
     }
 
     // ------ settings
 
-    function addStakePool(address[] memory _stakePoolAddressList) external onlyOwner {
+    function addStakePool(address[] calldata _stakePoolAddressList) external onlyOwner {
         for (uint256 i = 0; i < _stakePoolAddressList.length; i++) {
             bondedPools.add(_stakePoolAddressList[i]);
         }
@@ -145,6 +161,46 @@ contract StakeManager is Multisig, IRateProvider {
         proposals[proposalId] = proposal;
     }
 
+    function operate(
+        uint256 _era,
+        address _poolAddress,
+        Action _action,
+        address[] calldata _valList,
+        uint256[] calldata _amountList
+    ) public onlySubAccount {
+        bytes32 proposalId = keccak256(abi.encodePacked("operate", _era, _poolAddress, _action, _valList, _amountList));
+        Proposal memory proposal = checkProposal(proposalId);
+
+        // Finalize if Threshold has been reached
+        if (proposal._yesVotesTotal >= threshold) {
+            exeOperate(_era, _poolAddress, _action, _valList, _amountList);
+
+            proposal._status = ProposalStatus.Executed;
+            emit ProposalExecuted(proposalId);
+        }
+
+        proposals[proposalId] = proposal;
+    }
+
+    function operateAck(
+        uint256 _era,
+        address _poolAddress,
+        uint256[] calldata _successOpIndexList
+    ) public onlySubAccount {
+        bytes32 proposalId = keccak256(abi.encodePacked("operateAck", _era, _poolAddress, _successOpIndexList));
+        Proposal memory proposal = checkProposal(proposalId);
+
+        // Finalize if Threshold has been reached
+        if (proposal._yesVotesTotal >= threshold) {
+            exeOperateAck(_era, _poolAddress, _successOpIndexList);
+
+            proposal._status = ProposalStatus.Executed;
+            emit ProposalExecuted(proposalId);
+        }
+
+        proposals[proposalId] = proposal;
+    }
+
     // ----- staker operation
 
     function stake(address _stakePoolAddress) public payable {
@@ -153,6 +209,7 @@ contract StakeManager is Multisig, IRateProvider {
         require(bondedPools.contains(_stakePoolAddress), "stake pool not exist");
 
         uint256 rTokenAmount = msg.value.mul(1e18).div(rate);
+        totalRTokenSupply = totalRTokenSupply.add(rTokenAmount);
 
         // update pool
         PoolInfo storage poolInfo = poolInfoOf[_stakePoolAddress];
@@ -183,6 +240,7 @@ contract StakeManager is Multisig, IRateProvider {
 
         // burn rtoken
         IERC20MintBurn(rTokenAddress).burnFrom(msg.sender, leftRTokenAmount);
+        totalRTokenSupply = totalRTokenSupply.sub(leftRTokenAmount);
 
         // fee
         IERC20(rTokenAddress).safeTransferFrom(msg.sender, owner, unstakeFee);
@@ -291,5 +349,42 @@ contract StakeManager is Multisig, IRateProvider {
 
         currentEra = _era;
         currentEraState = EraState.NewEraExecuted;
+    }
+
+    function exeOperate(
+        uint256 _era,
+        address _poolAddress,
+        Action _action,
+        address[] calldata _valList,
+        uint256[] calldata _amountList
+    ) private {
+        pendingOperate[_era][_poolAddress] = Operate({action: _action, valList: _valList, amountList: _amountList});
+
+        if (_action == Action.Delegate) {
+            IStakePool(_poolAddress).delegate(_valList, _amountList);
+        } else if (_action == Action.Undelegate) {
+            IStakePool(_poolAddress).undelegate(_valList, _amountList);
+        }
+
+        poolInfoOf[_poolAddress].eraState = EraState.OperateExecuted;
+    }
+
+    function exeOperateAck(uint256 _era, address _poolAddress, uint256[] calldata _successOpIndexList) private {
+        Operate memory op = pendingOperate[_era][_poolAddress];
+        if (op.action == Action.Delegate) {
+            for (uint256 i = 0; i < _successOpIndexList.length; i++) {
+                pendingDelegateOf[_poolAddress] = pendingDelegateOf[_poolAddress].sub(
+                    op.amountList[_successOpIndexList[i]]
+                );
+            }
+        } else if (op.action == Action.Undelegate) {
+            for (uint256 i = 0; i < _successOpIndexList.length; i++) {
+                pendingUndelegateOf[_poolAddress] = pendingUndelegateOf[_poolAddress].sub(
+                    op.amountList[_successOpIndexList[i]]
+                );
+            }
+        }
+
+        poolInfoOf[_poolAddress].eraState = EraState.OperateAckExecuted;
     }
 }

@@ -24,4 +24,16 @@ contract StakePool {
         }
         return 0;
     }
+
+    function delegate(address[] calldata validatorList, uint256[] calldata amountList) external payable {
+        for (uint256 i = 0; i < validatorList.length; i++) {
+            IStaking(stakingAddress).delegate(validatorList[i], amountList[i]);
+        }
+    }
+    
+    function undelegate(address[] calldata validatorList, uint256[] calldata amountList) external payable {
+        for (uint256 i = 0; i < validatorList.length; i++) {
+            IStaking(stakingAddress).undelegate(validatorList[i], amountList[i]);
+        }
+    }
 }

@@ -8,6 +8,13 @@ enum EraState {
     OperateAckExecuted
 }
 
+enum Action {
+    Undefined,
+    Silence,
+    Delegate,
+    Undelegate
+}
+
 struct PoolInfo {
     EraState eraState;
     uint256 bond;
@@ -26,4 +33,10 @@ struct UnstakeInfo {
     uint256 era;
     address receiver;
     uint256 amount;
+}
+
+struct Operate {
+    Action action;
+    address[] valList;
+    uint256[] amountList;
 }
