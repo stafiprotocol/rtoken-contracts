@@ -11,9 +11,5 @@ interface IStakePool {
 
     function undelegate(address[] calldata validatorList, uint256[] calldata amountList) external payable;
 
-    function getDelegated(address delegator, address validator) external view returns (uint256);
-
-    function getTotalDelegated(address delegator) external view returns (uint256);
-
-    function getDistributedReward(address delegator) external view returns (uint256);
+    function getTotalDelegated() external view returns (uint256);
 }

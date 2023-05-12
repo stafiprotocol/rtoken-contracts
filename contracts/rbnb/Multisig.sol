@@ -46,7 +46,7 @@ contract Multisig {
         require(threshold == 0, "already initizlized");
         threshold = _initialThreshold.toUint8();
         uint256 initialSubAccountCount = _initialSubAccounts.length;
-        for (uint256 i; i < initialSubAccountCount; i++) {
+        for (uint256 i; i < initialSubAccountCount; ++i) {
             subAccounts.add(_initialSubAccounts[i]);
         }
         owner = msg.sender;

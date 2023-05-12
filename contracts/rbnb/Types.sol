@@ -22,13 +22,6 @@ struct PoolInfo {
     uint256 active;
 }
 
-struct Snapshot {
-    uint256 era;
-    uint256 bond;
-    uint256 unbond;
-    uint256 active;
-}
-
 struct UnstakeInfo {
     uint256 era;
     address receiver;
