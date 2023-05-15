@@ -194,7 +194,7 @@ contract StakeManager is Multisig, IRateProvider {
         address[] calldata _poolAddressList,
         uint256[] calldata _undistributedRewardList,
         uint256[] calldata _latestRewardTimestampList
-    ) external onlySubAccount {
+    ) external onlyVoter {
         bytes32 proposalId = keccak256(
             abi.encodePacked("newEra", _era, _poolAddressList, _undistributedRewardList, _latestRewardTimestampList)
         );
@@ -217,7 +217,7 @@ contract StakeManager is Multisig, IRateProvider {
         Action _action,
         address[] calldata _valList,
         uint256[] calldata _amountList
-    ) external onlySubAccount {
+    ) external onlyVoter {
         bytes32 proposalId = keccak256(abi.encodePacked("operate", _era, _poolAddress, _action, _valList, _amountList));
         Proposal memory proposal = _checkProposal(proposalId);
 
@@ -232,11 +232,7 @@ contract StakeManager is Multisig, IRateProvider {
         proposals[proposalId] = proposal;
     }
 
-    function operateAck(
-        uint256 _era,
-        address _poolAddress,
-        uint256[] calldata _successOpIndexList
-    ) external onlySubAccount {
+    function operateAck(uint256 _era, address _poolAddress, uint256[] calldata _successOpIndexList) external onlyVoter {
         bytes32 proposalId = keccak256(abi.encodePacked("operateAck", _era, _poolAddress, _successOpIndexList));
         Proposal memory proposal = _checkProposal(proposalId);
 

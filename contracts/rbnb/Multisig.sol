@@ -25,14 +25,14 @@ contract Multisig {
 
     address public admin;
     uint8 public threshold;
-    EnumerableSet.AddressSet subAccounts;
+    EnumerableSet.AddressSet voters;
 
     mapping(bytes32 => Proposal) public proposals;
 
     event ProposalExecuted(bytes32 indexed proposalId);
 
-    modifier onlySubAccount() {
-        require(subAccounts.contains(msg.sender));
+    modifier onlyVoter() {
+        require(voters.contains(msg.sender));
         _;
     }
 
@@ -41,13 +41,13 @@ contract Multisig {
         _;
     }
 
-    function initMultisig(address[] memory _initialSubAccounts, uint256 _initialThreshold) public {
-        require(_initialSubAccounts.length >= _initialThreshold && _initialThreshold > 0, "invalid threshold");
+    function initMultisig(address[] memory _voters, uint256 _initialThreshold) public {
+        require(_voters.length >= _initialThreshold && _initialThreshold > 0, "invalid threshold");
         require(threshold == 0, "already initizlized");
         threshold = _initialThreshold.toUint8();
-        uint256 initialSubAccountCount = _initialSubAccounts.length;
+        uint256 initialSubAccountCount = _voters.length;
         for (uint256 i; i < initialSubAccountCount; ++i) {
-            subAccounts.add(_initialSubAccounts[i]);
+            voters.add(_voters[i]);
         }
         admin = msg.sender;
     }
@@ -58,20 +58,20 @@ contract Multisig {
     }
 
     function addSubAccount(address _subAccount) public onlyAdmin {
-        subAccounts.add(_subAccount);
+        voters.add(_subAccount);
     }
 
     function removeSubAccount(address _subAccount) public onlyAdmin {
-        subAccounts.remove(_subAccount);
+        voters.remove(_subAccount);
     }
 
     function changeThreshold(uint256 _newThreshold) external onlyAdmin {
-        require(subAccounts.length() >= _newThreshold && _newThreshold > 0, "invalid threshold");
+        require(voters.length() >= _newThreshold && _newThreshold > 0, "invalid threshold");
         threshold = _newThreshold.toUint8();
     }
 
     function getSubAccountIndex(address _subAccount) public view returns (uint256) {
-        return subAccounts._inner._indexes[bytes32(uint256(_subAccount))];
+        return voters._inner._indexes[bytes32(uint256(_subAccount))];
     }
 
     function subAccountBit(address _subAccount) internal view returns (uint256) {
