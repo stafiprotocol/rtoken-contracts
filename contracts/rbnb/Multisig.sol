@@ -23,7 +23,7 @@ contract Multisig {
         uint8 _yesVotesTotal;
     }
 
-    address public owner;
+    address public admin;
     uint8 public threshold;
     EnumerableSet.AddressSet subAccounts;
 
@@ -36,8 +36,8 @@ contract Multisig {
         _;
     }
 
-    modifier onlyOwner() {
-        require(owner == msg.sender, "caller is not the owner");
+    modifier onlyAdmin() {
+        require(admin == msg.sender, "caller is not the owner");
         _;
     }
 
@@ -49,23 +49,23 @@ contract Multisig {
         for (uint256 i; i < initialSubAccountCount; ++i) {
             subAccounts.add(_initialSubAccounts[i]);
         }
-        owner = msg.sender;
+        admin = msg.sender;
     }
 
-    function transferOwnership(address _newOwner) public onlyOwner {
+    function transferOwnership(address _newOwner) public onlyAdmin {
         require(_newOwner != address(0), "new owner is the zero address");
-        owner = _newOwner;
+        admin = _newOwner;
     }
 
-    function addSubAccount(address _subAccount) public onlyOwner {
+    function addSubAccount(address _subAccount) public onlyAdmin {
         subAccounts.add(_subAccount);
     }
 
-    function removeSubAccount(address _subAccount) public onlyOwner {
+    function removeSubAccount(address _subAccount) public onlyAdmin {
         subAccounts.remove(_subAccount);
     }
 
-    function changeThreshold(uint256 _newThreshold) external onlyOwner {
+    function changeThreshold(uint256 _newThreshold) external onlyAdmin {
         require(subAccounts.length() >= _newThreshold && _newThreshold > 0, "invalid threshold");
         threshold = _newThreshold.toUint8();
     }

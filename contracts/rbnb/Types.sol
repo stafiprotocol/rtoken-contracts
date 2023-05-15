@@ -24,6 +24,7 @@ struct PoolInfo {
 
 struct UnstakeInfo {
     uint256 era;
+    address pool;
     address receiver;
     uint256 amount;
 }
