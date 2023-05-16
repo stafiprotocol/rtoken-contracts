@@ -24,10 +24,11 @@ contract StakeManager is Multisig, IRateProvider {
     uint256 public minStakeAmount;
     uint256 public unstakeFeeCommission; // decimals 18
     uint256 public protocolFeeCommission; // decimals 18
+    uint256 public relayerFee; // decimals 18
     uint256 public rateChangeLimit; // decimals 18
     uint256 public transferGas;
     uint256 public eraSeconds;
-    uint256 public eraFactor;
+    uint256 public eraOffset;
     uint256 public unbondingDuration;
 
     // era state
@@ -55,25 +56,24 @@ contract StakeManager is Multisig, IRateProvider {
     event Unstake(address staker, address stakePool, uint256 tokenAmount, uint256 rTokenAmount, uint256 burnAmount);
 
     function init(
-        address[] calldata _initialSubAccounts,
+        address[] calldata _initialVoters,
         uint256 _initialThreshold,
         address _rTokenAddress,
-        uint256 _minStakeAmount,
         uint256 _unbondingDuration,
         address _stakePoolAddress,
         address _validator,
         uint256 _bond, // need migrate
         uint256 _unbond, // need migrate
         uint256 _active, // need migrate
+        uint256 _pendingDelegate, // need migrate
         uint256 _rate, // need migrate
         uint256 _totalRTokenSupply, // need migrate
         uint256 _totalProtocolFee, // need migrate
         uint256 _era // need migrate
     ) public {
-        initMultisig(_initialSubAccounts, _initialThreshold);
+        initMultisig(_initialVoters, _initialThreshold);
 
         rTokenAddress = _rTokenAddress;
-        minStakeAmount = _minStakeAmount;
         unbondingDuration = _unbondingDuration;
 
         bondedPools.add(_stakePoolAddress);
@@ -84,15 +84,20 @@ contract StakeManager is Multisig, IRateProvider {
             unbond: _unbond,
             active: _active
         });
+        pendingDelegateOf[_stakePoolAddress] = _pendingDelegate;
         rate = _rate;
         totalRTokenSupply = _totalRTokenSupply;
         totalProtocolFee = _totalProtocolFee;
         latestEra = _era;
 
-        rateChangeLimit = 1e15; // 0.1%
-        unstakeFeeCommission = 1e15;
+        minStakeAmount = 1e18;
+        rateChangeLimit = 1e15;
+        unstakeFeeCommission = 2e15;
         protocolFeeCommission = 1e17;
+        relayerFee = 16e15;
         transferGas = 2300;
+        eraSeconds = 86400;
+        eraOffset = 18033;
     }
 
     // ------ settings
@@ -145,33 +150,36 @@ contract StakeManager is Multisig, IRateProvider {
     function setParams(
         uint256 _unstakeFeeCommission,
         uint256 _protocolFeeCommission,
+        uint256 _relayerFee,
         uint256 _minStakeAmount,
         uint256 _unbondingDuration,
         uint256 _rateChangeLimit,
         uint256 _eraSeconds,
-        uint256 _eraFactor,
+        uint256 _eraOffset,
         uint256 _transferGas
     ) external onlyAdmin {
-        unstakeFeeCommission = _unstakeFeeCommission;
-        protocolFeeCommission = _protocolFeeCommission;
-        minStakeAmount = _minStakeAmount;
-        unbondingDuration = _unbondingDuration;
-        rateChangeLimit = _rateChangeLimit;
-        eraSeconds = _eraSeconds;
-        eraFactor = _eraFactor;
-        transferGas = _transferGas;
+        unstakeFeeCommission = _unstakeFeeCommission == 1 ? unstakeFeeCommission : _unstakeFeeCommission;
+        protocolFeeCommission = _protocolFeeCommission == 1 ? protocolFeeCommission : _protocolFeeCommission;
+        relayerFee = _relayerFee == 1 ? relayerFee : _relayerFee;
+        minStakeAmount = _minStakeAmount == 0 ? minStakeAmount : _minStakeAmount;
+        unbondingDuration = _unbondingDuration == 0 ? unbondingDuration : _unbondingDuration;
+        rateChangeLimit = _rateChangeLimit == 0 ? rateChangeLimit : _rateChangeLimit;
+        eraSeconds = _eraSeconds == 0 ? eraSeconds : _eraSeconds;
+        eraOffset = _eraOffset == 0 ? eraOffset : _eraOffset;
+        transferGas = _transferGas == 0 ? transferGas : _transferGas;
     }
 
     function toggleStakeSwitch() external onlyAdmin {
         stakeSwitch = !stakeSwitch;
     }
 
-    function withdrawFee() external onlyAdmin {
-        IERC20(rTokenAddress).safeTransferFrom(
-            address(this),
-            msg.sender,
-            IERC20(rTokenAddress).balanceOf(address(this))
-        );
+    function withdrawProtocolFee() external onlyAdmin {
+        IERC20(rTokenAddress).safeTransfer(msg.sender, IERC20(rTokenAddress).balanceOf(address(this)));
+    }
+
+    function withdrawRelayerFee() external onlyAdmin {
+        (bool success, ) = msg.sender.call{value: address(this).balance}("");
+        require(success, "failed to withdraw");
     }
 
     // ----- getters
@@ -219,7 +227,7 @@ contract StakeManager is Multisig, IRateProvider {
     }
 
     function currentEra() public view returns (uint256) {
-        return block.timestamp.div(eraSeconds).sub(eraFactor);
+        return block.timestamp.div(eraSeconds).sub(eraOffset);
     }
 
     // ----- vote
@@ -284,11 +292,11 @@ contract StakeManager is Multisig, IRateProvider {
 
     // ----- staker operation
 
-    function stake() external payable {
-        stakeWithPool(bondedPools.at(0));
+    function stake(uint256 _stakeAmount) external payable {
+        stakeWithPool(bondedPools.at(0), _stakeAmount);
     }
 
-    function unstake(uint256 _rTokenAmount) external {
+    function unstake(uint256 _rTokenAmount) external payable {
         unstakeWithPool(bondedPools.at(0), _rTokenAmount);
     }
 
@@ -296,34 +304,36 @@ contract StakeManager is Multisig, IRateProvider {
         claimWithPool(bondedPools.at(0));
     }
 
-    function stakeWithPool(address _stakePoolAddress) public payable {
+    function stakeWithPool(address _stakePoolAddress, uint256 _stakeAmount) public payable {
         require(stakeSwitch, "stake closed");
-        require(msg.value >= minStakeAmount, "amount not match");
+        require(msg.value >= _stakeAmount.add(relayerFee.div(2)), "fee not enough");
+        require(_stakeAmount >= minStakeAmount, "amount not enough");
         require(bondedPools.contains(_stakePoolAddress), "pool not exist");
         (bool success, ) = msg.sender.call{gas: transferGas}("");
         require(success, "staker not payable");
 
-        uint256 rTokenAmount = msg.value.mul(1e18).div(rate);
+        uint256 rTokenAmount = _stakeAmount.mul(1e18).div(rate);
 
         // update pool
         PoolInfo storage poolInfo = poolInfoOf[_stakePoolAddress];
-        poolInfo.bond = poolInfo.bond.add(msg.value);
-        poolInfo.active = poolInfo.active.add(msg.value);
+        poolInfo.bond = poolInfo.bond.add(_stakeAmount);
+        poolInfo.active = poolInfo.active.add(_stakeAmount);
 
         // transfer token
-        (success, ) = _stakePoolAddress.call{value: msg.value}("");
+        (success, ) = _stakePoolAddress.call{value: _stakeAmount}("");
         require(success, "transfer failed");
 
         // mint rtoken
         totalRTokenSupply = totalRTokenSupply.add(rTokenAmount);
         IERC20MintBurn(rTokenAddress).mint(msg.sender, rTokenAmount);
 
-        emit Stake(msg.sender, _stakePoolAddress, msg.value, rTokenAmount);
+        emit Stake(msg.sender, _stakePoolAddress, _stakeAmount, rTokenAmount);
     }
 
-    function unstakeWithPool(address _stakePoolAddress, uint256 _rTokenAmount) public {
+    function unstakeWithPool(address _stakePoolAddress, uint256 _rTokenAmount) public payable {
         require(stakeSwitch, "stake closed");
-        require(_rTokenAmount >= 0, "amount zero");
+        require(_rTokenAmount > 0, "rtoken amount zero");
+        require(msg.value >= relayerFee, "fee not enough");
         require(bondedPools.contains(_stakePoolAddress), "pool not exist");
         (bool success, ) = msg.sender.call{gas: transferGas}("");
         require(success, "unstaker not payable");
@@ -342,7 +352,7 @@ contract StakeManager is Multisig, IRateProvider {
         IERC20MintBurn(rTokenAddress).burnFrom(msg.sender, leftRTokenAmount);
         totalRTokenSupply = totalRTokenSupply.sub(leftRTokenAmount);
 
-        // fee
+        // protocol fee
         totalProtocolFee = totalProtocolFee.add(unstakeFee);
         IERC20(rTokenAddress).safeTransferFrom(msg.sender, address(this), unstakeFee);
 
@@ -405,7 +415,7 @@ contract StakeManager is Multisig, IRateProvider {
         require(latestEra == 0 || _era == latestEra.add(1), "latestEra not match");
         require(allPoolEraStateIs(EraState.OperateAckExecuted, true), "eraState not match");
 
-        uint256 totalOldActive;
+        uint256 totalNewReward;
         uint256 totalNewActive;
         for (uint256 i = 0; i < _poolAddressList.length; ++i) {
             require(_latestRewardTimestampList[i] < block.timestamp, "timestamp too big");
@@ -415,11 +425,13 @@ contract StakeManager is Multisig, IRateProvider {
             );
             address poolAddress = _poolAddressList[i];
 
-            // update undistributedReward
             if (_undistributedRewardList[i] > 0) {
+                // update undistributedReward
                 undistributedRewardOf[poolAddress] = undistributedRewardOf[poolAddress].add(
                     _undistributedRewardList[i]
                 );
+                // total new reward
+                totalNewReward = totalNewReward.add(_undistributedRewardList[i]);
             }
 
             PoolInfo memory poolInfo = poolInfoOf[poolAddress];
@@ -452,7 +464,6 @@ contract StakeManager is Multisig, IRateProvider {
                 .add(undistributedRewardOf[poolAddress])
                 .sub(pendingUndelegateOf[poolAddress]);
 
-            totalOldActive = totalOldActive.add(poolInfo.active);
             totalNewActive = totalNewActive.add(poolNewActive);
 
             // update pool state
@@ -465,8 +476,8 @@ contract StakeManager is Multisig, IRateProvider {
         require(allPoolEraStateIs(EraState.NewEraExecuted, false), "missing pool");
 
         // cal protocol fee
-        if (totalNewActive > totalOldActive) {
-            uint256 rTokenProtocolFee = totalNewActive.sub(totalOldActive).mul(protocolFeeCommission).div(rate);
+        if (totalNewReward > 0) {
+            uint256 rTokenProtocolFee = totalNewReward.mul(protocolFeeCommission).div(rate);
             totalProtocolFee = totalProtocolFee.add(rTokenProtocolFee);
 
             // mint rtoken
