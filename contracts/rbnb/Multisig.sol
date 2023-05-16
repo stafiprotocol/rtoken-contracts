@@ -45,8 +45,8 @@ contract Multisig {
         require(_voters.length >= _initialThreshold && _initialThreshold > 0, "invalid threshold");
         require(threshold == 0, "already initizlized");
         threshold = _initialThreshold.toUint8();
-        uint256 initialSubAccountCount = _voters.length;
-        for (uint256 i; i < initialSubAccountCount; ++i) {
+        uint256 initialVoterCount = _voters.length;
+        for (uint256 i; i < initialVoterCount; ++i) {
             voters.add(_voters[i]);
         }
         admin = msg.sender;
@@ -57,12 +57,12 @@ contract Multisig {
         admin = _newOwner;
     }
 
-    function addSubAccount(address _subAccount) public onlyAdmin {
-        voters.add(_subAccount);
+    function addVoter(address _voter) public onlyAdmin {
+        voters.add(_voter);
     }
 
-    function removeSubAccount(address _subAccount) public onlyAdmin {
-        voters.remove(_subAccount);
+    function removeVoter(address _voter) public onlyAdmin {
+        voters.remove(_voter);
     }
 
     function changeThreshold(uint256 _newThreshold) external onlyAdmin {
@@ -70,20 +70,20 @@ contract Multisig {
         threshold = _newThreshold.toUint8();
     }
 
-    function getSubAccountIndex(address _subAccount) public view returns (uint256) {
-        return voters._inner._indexes[bytes32(uint256(_subAccount))];
+    function getVoterIndex(address _voter) public view returns (uint256) {
+        return voters._inner._indexes[bytes32(uint256(_voter))];
     }
 
-    function subAccountBit(address _subAccount) internal view returns (uint256) {
-        return uint256(1) << getSubAccountIndex(_subAccount).sub(1);
+    function voterBit(address _voter) internal view returns (uint256) {
+        return uint256(1) << getVoterIndex(_voter).sub(1);
     }
 
-    function _hasVoted(Proposal memory _proposal, address _subAccount) internal view returns (bool) {
-        return (subAccountBit(_subAccount) & uint256(_proposal._yesVotes)) > 0;
+    function _hasVoted(Proposal memory _proposal, address _voter) internal view returns (bool) {
+        return (voterBit(_voter) & uint256(_proposal._yesVotes)) > 0;
     }
 
-    function hasVoted(bytes32 _proposalId, address _subAccount) public view returns (bool) {
+    function hasVoted(bytes32 _proposalId, address _voter) public view returns (bool) {
         Proposal memory proposal = proposals[_proposalId];
-        return _hasVoted(proposal, _subAccount);
+        return _hasVoted(proposal, _voter);
     }
 }
