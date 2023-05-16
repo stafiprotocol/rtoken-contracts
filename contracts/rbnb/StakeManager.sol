@@ -28,6 +28,7 @@ contract StakeManager is Multisig, IRateProvider {
     uint256 public transferGas;
     uint256 public eraSeconds;
     uint256 public eraFactor;
+    uint256 public unbondingDuration;
 
     // era state
     uint256 public latestEra; // need migrate
@@ -58,7 +59,7 @@ contract StakeManager is Multisig, IRateProvider {
         uint256 _initialThreshold,
         address _rTokenAddress,
         uint256 _minStakeAmount,
-        uint256 _unstakeFeeCommission,
+        uint256 _unbondingDuration,
         address _stakePoolAddress,
         address _validator,
         uint256 _bond, // need migrate
@@ -73,7 +74,7 @@ contract StakeManager is Multisig, IRateProvider {
 
         rTokenAddress = _rTokenAddress;
         minStakeAmount = _minStakeAmount;
-        unstakeFeeCommission = _unstakeFeeCommission;
+        unbondingDuration = _unbondingDuration;
 
         bondedPools.add(_stakePoolAddress);
         validatorsOf[_stakePoolAddress].add(_validator);
@@ -89,6 +90,7 @@ contract StakeManager is Multisig, IRateProvider {
         latestEra = _era;
 
         rateChangeLimit = 1e15; // 0.1%
+        unstakeFeeCommission = 1e15;
         protocolFeeCommission = 1e17;
         transferGas = 2300;
     }
@@ -144,6 +146,7 @@ contract StakeManager is Multisig, IRateProvider {
         uint256 _unstakeFeeCommission,
         uint256 _protocolFeeCommission,
         uint256 _minStakeAmount,
+        uint256 _unbondingDuration,
         uint256 _rateChangeLimit,
         uint256 _eraSeconds,
         uint256 _eraFactor,
@@ -152,6 +155,7 @@ contract StakeManager is Multisig, IRateProvider {
         unstakeFeeCommission = _unstakeFeeCommission;
         protocolFeeCommission = _protocolFeeCommission;
         minStakeAmount = _minStakeAmount;
+        unbondingDuration = _unbondingDuration;
         rateChangeLimit = _rateChangeLimit;
         eraSeconds = _eraSeconds;
         eraFactor = _eraFactor;
@@ -190,7 +194,7 @@ contract StakeManager is Multisig, IRateProvider {
         return true;
     }
 
-    function getBondedPools() public view returns (address[] memory pools) {
+    function getBondedPools() external view returns (address[] memory pools) {
         pools = new address[](bondedPools.length());
         for (uint256 i = 0; i < bondedPools.length(); ++i) {
             pools[i] = bondedPools.at(i);
@@ -198,13 +202,20 @@ contract StakeManager is Multisig, IRateProvider {
         return pools;
     }
 
-    function getValidatorsOf(address poolAddress) public view returns (address[] memory validators) {
-        EnumerableSet.AddressSet storage validatorsSet = validatorsOf[poolAddress];
-        validators = new address[](validatorsSet.length());
-        for (uint256 i = 0; i < validatorsSet.length(); ++i) {
-            validators[i] = validatorsSet.at(i);
+    function getValidatorsOf(address _poolAddress) external view returns (address[] memory validators) {
+        validators = new address[](validatorsOf[_poolAddress].length());
+        for (uint256 i = 0; i < validatorsOf[_poolAddress].length(); ++i) {
+            validators[i] = validatorsOf[_poolAddress].at(i);
         }
         return validators;
+    }
+
+    function getUnstakeIndexListOf(address _staker) external view returns (uint256[] memory unstakeIndexList) {
+        unstakeIndexList = new uint256[](unstakeOfUser[_staker].length());
+        for (uint256 i = 0; i < unstakeOfUser[_staker].length(); ++i) {
+            unstakeIndexList[i] = unstakeOfUser[_staker].at(i);
+        }
+        return unstakeIndexList;
     }
 
     function currentEra() public view returns (uint256) {
@@ -226,7 +237,7 @@ contract StakeManager is Multisig, IRateProvider {
 
         // Finalize if Threshold has been reached
         if (proposal._yesVotesTotal >= threshold) {
-            _exeNewEra(_era, _poolAddressList, _undistributedRewardList, _latestRewardTimestampList);
+            _executeNewEra(_era, _poolAddressList, _undistributedRewardList, _latestRewardTimestampList);
 
             proposal._status = ProposalStatus.Executed;
             emit ProposalExecuted(proposalId);
@@ -247,7 +258,7 @@ contract StakeManager is Multisig, IRateProvider {
 
         // Finalize if Threshold has been reached
         if (proposal._yesVotesTotal >= threshold) {
-            _exeOperate(_era, _poolAddress, _action, _valList, _amountList);
+            _executeOperate(_era, _poolAddress, _action, _valList, _amountList);
 
             proposal._status = ProposalStatus.Executed;
             emit ProposalExecuted(proposalId);
@@ -262,7 +273,7 @@ contract StakeManager is Multisig, IRateProvider {
 
         // Finalize if Threshold has been reached
         if (proposal._yesVotesTotal >= threshold) {
-            _exeOperateAck(_era, _poolAddress, _successOpIndexList);
+            _executeOperateAck(_era, _poolAddress, _successOpIndexList);
 
             proposal._status = ProposalStatus.Executed;
             emit ProposalExecuted(proposalId);
@@ -273,7 +284,19 @@ contract StakeManager is Multisig, IRateProvider {
 
     // ----- staker operation
 
-    function stake(address _stakePoolAddress) external payable {
+    function stake() external payable {
+        stakeWithPool(bondedPools.at(0));
+    }
+
+    function unstake(uint256 _rTokenAmount) external {
+        unstakeWithPool(bondedPools.at(0), _rTokenAmount);
+    }
+
+    function claim() external {
+        claimWithPool(bondedPools.at(0));
+    }
+
+    function stakeWithPool(address _stakePoolAddress) public payable {
         require(stakeSwitch, "stake closed");
         require(msg.value >= minStakeAmount, "amount not match");
         require(bondedPools.contains(_stakePoolAddress), "pool not exist");
@@ -298,12 +321,13 @@ contract StakeManager is Multisig, IRateProvider {
         emit Stake(msg.sender, _stakePoolAddress, msg.value, rTokenAmount);
     }
 
-    function unstake(uint256 _rTokenAmount, address _stakePoolAddress) external {
+    function unstakeWithPool(address _stakePoolAddress, uint256 _rTokenAmount) public {
         require(stakeSwitch, "stake closed");
         require(_rTokenAmount >= 0, "amount zero");
         require(bondedPools.contains(_stakePoolAddress), "pool not exist");
         (bool success, ) = msg.sender.call{gas: transferGas}("");
         require(success, "unstaker not payable");
+        require(unstakeOfUser[msg.sender].length() <= 100, "unstake number limit"); //todo test max limit number
 
         uint256 unstakeFee = _rTokenAmount.mul(unstakeFeeCommission).div(1e18);
         uint256 leftRTokenAmount = _rTokenAmount.sub(unstakeFee);
@@ -336,17 +360,17 @@ contract StakeManager is Multisig, IRateProvider {
         emit Unstake(msg.sender, _stakePoolAddress, tokenAmount, _rTokenAmount, leftRTokenAmount);
     }
 
-    function claim(address _poolAddress, uint256[] calldata _unstakeIndexList) external {
+    function claimWithPool(address _poolAddress) public {
         uint256 totalClaimAmount;
-        for (uint256 i = 0; i < _unstakeIndexList.length; ++i) {
-            uint256 unstakeIndex = _unstakeIndexList[i];
+        for (uint256 i = 0; i < unstakeOfUser[msg.sender].length(); ++i) {
+            uint256 unstakeIndex = unstakeOfUser[msg.sender].at(i);
             UnstakeInfo memory unstakeInfo = unstakeAtIndex[unstakeIndex];
+            if (unstakeInfo.era.add(unbondingDuration) > latestEra) {
+                continue;
+            }
 
-            require(unstakeInfo.era <= latestEra, "not claimable");
-            require(unstakeInfo.receiver == msg.sender, "receiver not match");
             require(unstakeInfo.pool == _poolAddress, "pool not match");
-
-            require(unstakeOfUser[unstakeInfo.receiver].remove(unstakeIndex), "already claimed");
+            require(unstakeOfUser[msg.sender].remove(unstakeIndex), "already claimed");
 
             totalClaimAmount = totalClaimAmount.add(unstakeInfo.amount);
         }
@@ -371,7 +395,7 @@ contract StakeManager is Multisig, IRateProvider {
         proposal._yesVotesTotal++;
     }
 
-    function _exeNewEra(
+    function _executeNewEra(
         uint256 _era,
         address[] calldata _poolAddressList,
         uint256[] calldata _undistributedRewardList,
@@ -459,7 +483,7 @@ contract StakeManager is Multisig, IRateProvider {
         latestEra = _era;
     }
 
-    function _exeOperate(
+    function _executeOperate(
         uint256 _era,
         address _poolAddress,
         Action _action,
@@ -484,7 +508,7 @@ contract StakeManager is Multisig, IRateProvider {
         poolInfoOf[_poolAddress].eraState = EraState.OperateExecuted;
     }
 
-    function _exeOperateAck(uint256 _era, address _poolAddress, uint256[] calldata _successOpIndexList) private {
+    function _executeOperateAck(uint256 _era, address _poolAddress, uint256[] calldata _successOpIndexList) private {
         require(latestEra == _era, "era not match");
         require(poolInfoOf[_poolAddress].eraState == EraState.OperateExecuted, "eraState not match");
 
