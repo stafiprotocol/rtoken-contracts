@@ -173,12 +173,12 @@ contract StakeManager is Multisig, IRateProvider {
         stakeSwitch = !stakeSwitch;
     }
 
-    function withdrawProtocolFee() external onlyAdmin {
-        IERC20(rTokenAddress).safeTransfer(msg.sender, IERC20(rTokenAddress).balanceOf(address(this)));
+    function withdrawProtocolFee(address _to) external onlyAdmin {
+        IERC20(rTokenAddress).safeTransfer(_to, IERC20(rTokenAddress).balanceOf(address(this)));
     }
 
-    function withdrawRelayerFee() external onlyAdmin {
-        (bool success, ) = msg.sender.call{value: address(this).balance}("");
+    function withdrawRelayerFee(address _to) external onlyAdmin {
+        (bool success, ) = _to.call{value: address(this).balance}("");
         require(success, "failed to withdraw");
     }
 
@@ -186,6 +186,14 @@ contract StakeManager is Multisig, IRateProvider {
 
     function getRate() external view override returns (uint256) {
         return rate;
+    }
+
+    function getStakeRelayerFee() public view returns (uint256) {
+        return relayerFee.div(2);
+    }
+
+    function getUnstakeRelayerFee() public view returns (uint256) {
+        return relayerFee;
     }
 
     function allPoolEraStateIs(EraState eraState, bool skipUninitialized) public view returns (bool) {
@@ -306,7 +314,7 @@ contract StakeManager is Multisig, IRateProvider {
 
     function stakeWithPool(address _stakePoolAddress, uint256 _stakeAmount) public payable {
         require(stakeSwitch, "stake closed");
-        require(msg.value >= _stakeAmount.add(relayerFee.div(2)), "fee not enough");
+        require(msg.value >= _stakeAmount.add(getStakeRelayerFee()), "fee not enough");
         require(_stakeAmount >= minStakeAmount, "amount not enough");
         require(bondedPools.contains(_stakePoolAddress), "pool not exist");
         (bool success, ) = msg.sender.call{gas: transferGas}("");
@@ -333,7 +341,7 @@ contract StakeManager is Multisig, IRateProvider {
     function unstakeWithPool(address _stakePoolAddress, uint256 _rTokenAmount) public payable {
         require(stakeSwitch, "stake closed");
         require(_rTokenAmount > 0, "rtoken amount zero");
-        require(msg.value >= relayerFee, "fee not enough");
+        require(msg.value >= getUnstakeRelayerFee(), "fee not enough");
         require(bondedPools.contains(_stakePoolAddress), "pool not exist");
         (bool success, ) = msg.sender.call{gas: transferGas}("");
         require(success, "unstaker not payable");
@@ -372,8 +380,15 @@ contract StakeManager is Multisig, IRateProvider {
 
     function claimWithPool(address _poolAddress) public {
         uint256 totalClaimAmount;
+        uint256 length = unstakeOfUser[msg.sender].length();
+        uint256[] memory unstakeIndexList = new uint256[](length);
+
         for (uint256 i = 0; i < unstakeOfUser[msg.sender].length(); ++i) {
-            uint256 unstakeIndex = unstakeOfUser[msg.sender].at(i);
+            unstakeIndexList[i] = unstakeOfUser[msg.sender].at(i);
+        }
+
+        for (uint256 i = 0; i < length; ++i) {
+            uint256 unstakeIndex = unstakeIndexList[i];
             UnstakeInfo memory unstakeInfo = unstakeAtIndex[unstakeIndex];
             if (unstakeInfo.era.add(unbondingDuration) > latestEra) {
                 continue;
