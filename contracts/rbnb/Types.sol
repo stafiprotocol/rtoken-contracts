@@ -16,6 +16,7 @@ enum Action {
 }
 
 struct PoolInfo {
+    uint256 era;
     EraState eraState;
     uint256 bond;
     uint256 unbond;

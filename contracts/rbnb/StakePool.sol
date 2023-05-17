@@ -110,4 +110,8 @@ contract StakePool is IStakePool {
     function getDelegated(address validator) external view override returns (uint256) {
         return IStaking(stakingAddress()).getDelegated(address(this), validator);
     }
+
+    function getMinDelegation() external view override returns (uint256) {
+        return IStaking(stakingAddress()).getMinDelegation();
+    }
 }

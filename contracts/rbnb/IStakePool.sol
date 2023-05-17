@@ -18,4 +18,6 @@ interface IStakePool {
     function getTotalDelegated() external view returns (uint256);
 
     function getDelegated(address validator) external view returns (uint256);
+
+    function getMinDelegation() external view returns (uint256);
 }
