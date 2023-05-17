@@ -322,8 +322,8 @@ contract StakeManager is Multisig, IRateProvider {
         unstakeWithPool(bondedPools.at(0), _rTokenAmount);
     }
 
-    function claim() external {
-        claimWithPool(bondedPools.at(0));
+    function withdraw() external {
+        withdrawWithPool(bondedPools.at(0));
     }
 
     function stakeWithPool(address _stakePoolAddress, uint256 _stakeAmount) public payable {
@@ -392,8 +392,8 @@ contract StakeManager is Multisig, IRateProvider {
         emit Unstake(msg.sender, _stakePoolAddress, tokenAmount, _rTokenAmount, leftRTokenAmount);
     }
 
-    function claimWithPool(address _poolAddress) public {
-        uint256 totalClaimAmount;
+    function withdrawWithPool(address _poolAddress) public {
+        uint256 totalWithdrawAmount;
         uint256 length = unstakeOfUser[msg.sender].length();
         uint256[] memory unstakeIndexList = new uint256[](length);
 
@@ -409,13 +409,13 @@ contract StakeManager is Multisig, IRateProvider {
             }
 
             require(unstakeInfo.pool == _poolAddress, "pool not match");
-            require(unstakeOfUser[msg.sender].remove(unstakeIndex), "already claimed");
+            require(unstakeOfUser[msg.sender].remove(unstakeIndex), "already withdrawed");
 
-            totalClaimAmount = totalClaimAmount.add(unstakeInfo.amount);
+            totalWithdrawAmount = totalWithdrawAmount.add(unstakeInfo.amount);
         }
 
-        if (totalClaimAmount > 0) {
-            IStakePool(_poolAddress).claimForStaker(msg.sender, totalClaimAmount);
+        if (totalWithdrawAmount > 0) {
+            IStakePool(_poolAddress).withdrawForStaker(msg.sender, totalWithdrawAmount);
         }
     }
 

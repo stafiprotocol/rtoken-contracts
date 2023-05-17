@@ -96,7 +96,7 @@ contract StakePool is IStakePool {
         IStaking(stakingAddress()).redelegate{value: relayerFee}(validatorSrc, validatorDst, amount);
     }
 
-    function claimForStaker(address staker, uint256 amount) external override onlyStakeManager {
+    function withdrawForStaker(address staker, uint256 amount) external override onlyStakeManager {
         if (amount > 0) {
             (bool result, ) = staker.call{value: amount}("");
             require(result, "call failed");

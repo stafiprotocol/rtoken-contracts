@@ -13,7 +13,7 @@ interface IStakePool {
 
     function redelegate(address validatorSrc, address validatorDst, uint256 amount) external;
 
-    function claimForStaker(address staker, uint256 amount) external;
+    function withdrawForStaker(address staker, uint256 amount) external;
 
     function getTotalDelegated() external view returns (uint256);
 
