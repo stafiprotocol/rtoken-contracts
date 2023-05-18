@@ -28,4 +28,6 @@ interface IStakePool {
     function getPendingUndelegateTime(address validator) external view returns (uint256);
 
     function getRequestInFly() external view returns (uint256[3] memory);
+
+    function getRelayerFee() external view returns (uint256);
 }

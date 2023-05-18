@@ -15,16 +15,10 @@ contract StakeManager is Multisig, IRateProvider {
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.UintSet;
 
-    // ---- storage
-
-    bool public stakeSwitch;
-
-    // params
     address public rTokenAddress;
     uint256 public minStakeAmount;
     uint256 public unstakeFeeCommission; // decimals 18
     uint256 public protocolFeeCommission; // decimals 18
-    uint256 public relayerFee; // decimals 18
     uint256 public rateChangeLimit; // decimals 18
     uint256 public transferGas;
     uint256 public eraSeconds;
@@ -32,7 +26,6 @@ contract StakeManager is Multisig, IRateProvider {
     uint256 public unbondingDuration;
     uint256 public delegatedDiffLimit;
 
-    // era state
     uint256 public latestEra;
     uint256 private rate; // decimals 18
     uint256 public totalRTokenSupply;
@@ -73,7 +66,6 @@ contract StakeManager is Multisig, IRateProvider {
         rateChangeLimit = 1e15;
         unstakeFeeCommission = 2e15;
         protocolFeeCommission = 1e17;
-        relayerFee = 16e15;
         transferGas = 2300;
         eraSeconds = 86400;
         eraOffset = 18033;
@@ -87,11 +79,11 @@ contract StakeManager is Multisig, IRateProvider {
     }
 
     function getStakeRelayerFee() public view returns (uint256) {
-        return relayerFee.div(2);
+        return IStakePool(bondedPools.at(0)).getRelayerFee().div(2);
     }
 
     function getUnstakeRelayerFee() public view returns (uint256) {
-        return relayerFee;
+        return IStakePool(bondedPools.at(0)).getRelayerFee();
     }
 
     function getBondedPools() external view returns (address[] memory pools) {
@@ -201,7 +193,6 @@ contract StakeManager is Multisig, IRateProvider {
     function setParams(
         uint256 _unstakeFeeCommission,
         uint256 _protocolFeeCommission,
-        uint256 _relayerFee,
         uint256 _minStakeAmount,
         uint256 _unbondingDuration,
         uint256 _rateChangeLimit,
@@ -212,7 +203,6 @@ contract StakeManager is Multisig, IRateProvider {
     ) external onlyAdmin {
         unstakeFeeCommission = _unstakeFeeCommission == 1 ? unstakeFeeCommission : _unstakeFeeCommission;
         protocolFeeCommission = _protocolFeeCommission == 1 ? protocolFeeCommission : _protocolFeeCommission;
-        relayerFee = _relayerFee == 1 ? relayerFee : _relayerFee;
         minStakeAmount = _minStakeAmount == 0 ? minStakeAmount : _minStakeAmount;
         unbondingDuration = _unbondingDuration == 0 ? unbondingDuration : _unbondingDuration;
         rateChangeLimit = _rateChangeLimit == 0 ? rateChangeLimit : _rateChangeLimit;
@@ -220,10 +210,6 @@ contract StakeManager is Multisig, IRateProvider {
         eraOffset = _eraOffset == 0 ? eraOffset : _eraOffset;
         transferGas = _transferGas == 0 ? transferGas : _transferGas;
         delegatedDiffLimit = _delegatedDiffLimit == 0 ? delegatedDiffLimit : _delegatedDiffLimit;
-    }
-
-    function toggleStakeSwitch() external onlyAdmin {
-        stakeSwitch = !stakeSwitch;
     }
 
     function withdrawProtocolFee(address _to) external onlyAdmin {
@@ -274,7 +260,6 @@ contract StakeManager is Multisig, IRateProvider {
     }
 
     function stakeWithPool(address _stakePoolAddress, uint256 _stakeAmount) public payable {
-        require(stakeSwitch, "stake closed");
         require(msg.value >= _stakeAmount.add(getStakeRelayerFee()), "fee not enough");
         require(_stakeAmount >= minStakeAmount, "amount not enough");
         require(bondedPools.contains(_stakePoolAddress), "pool not exist");
@@ -300,7 +285,6 @@ contract StakeManager is Multisig, IRateProvider {
     }
 
     function unstakeWithPool(address _stakePoolAddress, uint256 _rTokenAmount) public payable {
-        require(stakeSwitch, "stake closed");
         require(_rTokenAmount > 0, "rtoken amount zero");
         require(msg.value >= getUnstakeRelayerFee(), "fee not enough");
         require(bondedPools.contains(_stakePoolAddress), "pool not exist");
@@ -347,11 +331,11 @@ contract StakeManager is Multisig, IRateProvider {
         for (uint256 i = 0; i < length; ++i) {
             unstakeIndexList[i] = unstakeOfUser[msg.sender].at(i);
         }
-
+        uint256 curEra = currentEra();
         for (uint256 i = 0; i < length; ++i) {
             uint256 unstakeIndex = unstakeIndexList[i];
             UnstakeInfo memory unstakeInfo = unstakeAtIndex[unstakeIndex];
-            if (unstakeInfo.era.add(unbondingDuration) > currentEra() || unstakeInfo.pool != _poolAddress) {
+            if (unstakeInfo.era.add(unbondingDuration) > curEra || unstakeInfo.pool != _poolAddress) {
                 continue;
             }
 
@@ -587,7 +571,7 @@ contract StakeManager is Multisig, IRateProvider {
             IERC20MintBurn(rTokenAddress).mint(address(this), rTokenProtocolFee);
         }
 
-        // uddate rate
+        // update rate
         uint256 newRate = totalNewActive.mul(1e18).div(totalRTokenSupply);
         uint256 rateChange = newRate > rate ? newRate.sub(rate) : rate.sub(newRate);
         require(rateChange.mul(1e18).div(rate) < rateChangeLimit, "rate change over limit");

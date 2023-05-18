@@ -132,4 +132,8 @@ contract StakePool is IStakePool {
     function getRequestInFly() external view override returns (uint256[3] memory) {
         return IStaking(stakingAddress()).getRequestInFly(address(this));
     }
+
+    function getRelayerFee() external view override returns (uint256) {
+        return IStaking(stakingAddress()).getRelayerFee();
+    }
 }
