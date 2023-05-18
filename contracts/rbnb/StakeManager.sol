@@ -33,10 +33,10 @@ contract StakeManager is Multisig, IRateProvider {
     uint256 public delegatedDiffLimit;
 
     // era state
-    uint256 public latestEra; // need migrate
-    uint256 private rate; // need migrate decimals 18
-    uint256 public totalRTokenSupply; // need migrate
-    uint256 public totalProtocolFee; // need migrate
+    uint256 public latestEra;
+    uint256 private rate; // decimals 18
+    uint256 public totalRTokenSupply;
+    uint256 public totalProtocolFee;
 
     EnumerableSet.AddressSet bondedPools;
     mapping(address => PoolInfo) public poolInfoOf;
@@ -46,6 +46,7 @@ contract StakeManager is Multisig, IRateProvider {
     mapping(address => uint256) public pendingDelegateOf;
     mapping(address => uint256) public pendingUndelegateOf;
     mapping(address => mapping(address => uint256)) delegatedOfValidator; // delegator => validator => amount
+    mapping(uint256 => uint256) eraRate;
 
     // unstake info
     uint256 nextUnstakeIndex;
@@ -126,9 +127,9 @@ contract StakeManager is Multisig, IRateProvider {
     function migrate(
         address _stakePoolAddress,
         address _validator,
+        uint256 _govDelegated,
         uint256 _bond,
         uint256 _unbond,
-        uint256 _active, // delegated + pendingDeleagte + undistributedReward
         uint256 _pendingDelegate,
         uint256 _rate,
         uint256 _totalRTokenSupply,
@@ -140,12 +141,19 @@ contract StakeManager is Multisig, IRateProvider {
         require(bondedPools.add(_stakePoolAddress), "already exist");
 
         validatorsOf[_stakePoolAddress].add(_validator);
-        poolInfoOf[_stakePoolAddress] = PoolInfo({era: _era, bond: _bond, unbond: _unbond, active: _active});
+        delegatedOfValidator[_stakePoolAddress][_validator] = _govDelegated;
+        poolInfoOf[_stakePoolAddress] = PoolInfo({
+            era: _era,
+            bond: _bond,
+            unbond: _unbond,
+            active: _govDelegated.add(_pendingDelegate).add(_undistributedReward)
+        });
         pendingDelegateOf[_stakePoolAddress] = _pendingDelegate;
         rate = _rate;
         totalRTokenSupply = _totalRTokenSupply;
         totalProtocolFee = _totalProtocolFee;
         latestEra = _era;
+        eraRate[_era] = _rate;
         latestRewardTimestampOf[_stakePoolAddress] = _latestRewardtimestamp;
         undistributedRewardOf[_stakePoolAddress] = _undistributedReward;
     }
@@ -319,7 +327,7 @@ contract StakeManager is Multisig, IRateProvider {
 
         // unstake info
         unstakeAtIndex[nextUnstakeIndex] = UnstakeInfo({
-            era: latestEra,
+            era: currentEra(),
             pool: _stakePoolAddress,
             receiver: msg.sender,
             amount: tokenAmount
@@ -343,11 +351,10 @@ contract StakeManager is Multisig, IRateProvider {
         for (uint256 i = 0; i < length; ++i) {
             uint256 unstakeIndex = unstakeIndexList[i];
             UnstakeInfo memory unstakeInfo = unstakeAtIndex[unstakeIndex];
-            if (unstakeInfo.era.add(unbondingDuration) > latestEra) {
+            if (unstakeInfo.era.add(unbondingDuration) > currentEra() || unstakeInfo.pool != _poolAddress) {
                 continue;
             }
 
-            require(unstakeInfo.pool == _poolAddress, "pool not match");
             require(unstakeOfUser[msg.sender].remove(unstakeIndex), "already withdrawed");
 
             totalWithdrawAmount = totalWithdrawAmount.add(unstakeInfo.amount);
@@ -419,15 +426,15 @@ contract StakeManager is Multisig, IRateProvider {
                         if (willUndelegate > govDelegated) {
                             willUndelegate = govDelegated;
                         }
-
-                        delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].sub(
-                            willUndelegate
-                        );
-                        IStakePool(_poolAddress).undelegate(val, willUndelegate);
-
-                        needUndelegate = 0;
-                        realUndelegate = realUndelegate.add(willUndelegate);
                     }
+
+                    delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].sub(
+                        willUndelegate
+                    );
+                    IStakePool(_poolAddress).undelegate(val, willUndelegate);
+
+                    needUndelegate = 0;
+                    realUndelegate = realUndelegate.add(willUndelegate);
                 } else {
                     delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].sub(govDelegated);
                     IStakePool(_poolAddress).undelegate(val, govDelegated);
@@ -477,12 +484,12 @@ contract StakeManager is Multisig, IRateProvider {
                 uint256 diff = govDelegated.sub(localDelegated);
 
                 pendingUndelegateOf[_poolAddress] = pendingUndelegateOf[_poolAddress].add(diff);
-                delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].add(diff);
+                delegatedOfValidator[_poolAddress][val] = govDelegated;
             } else if (localDelegated > govDelegated.add(delegatedDiffLimit)) {
                 uint256 diff = localDelegated.sub(govDelegated);
 
                 pendingDelegateOf[_poolAddress] = pendingDelegateOf[_poolAddress].add(diff);
-                delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].sub(diff);
+                delegatedOfValidator[_poolAddress][val] = govDelegated;
             }
         }
     }
@@ -584,6 +591,9 @@ contract StakeManager is Multisig, IRateProvider {
         uint256 newRate = totalNewActive.mul(1e18).div(totalRTokenSupply);
         uint256 rateChange = newRate > rate ? newRate.sub(rate) : rate.sub(newRate);
         require(rateChange.mul(1e18).div(rate) < rateChangeLimit, "rate change over limit");
+
+        rate = newRate;
+        eraRate[_era] = newRate;
 
         emit ExecuteNewEra(_era, newRate, block.number);
     }
