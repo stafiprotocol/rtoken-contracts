@@ -7,9 +7,13 @@ interface IStakePool {
 
     function checkAndClaimUndelegated() external returns (uint256);
 
-    function delegate(address[] calldata validatorList, uint256[] calldata amountList) external;
+    function delegate(address validator, uint256 amount) external;
 
-    function undelegate(address[] calldata validatorList, uint256[] calldata amountList) external;
+    function undelegate(address validator, uint256 amount) external;
+
+    function delegateVals(address[] calldata validatorList, uint256[] calldata amountList) external;
+
+    function undelegateVals(address[] calldata validatorList, uint256[] calldata amountList) external;
 
     function redelegate(address validatorSrc, address validatorDst, uint256 amount) external;
 
@@ -20,4 +24,8 @@ interface IStakePool {
     function getDelegated(address validator) external view returns (uint256);
 
     function getMinDelegation() external view returns (uint256);
+
+    function getPendingUndelegateTime(address validator) external view returns (uint256);
+
+    function getRequestInFly() external view returns (uint256[3] memory);
 }

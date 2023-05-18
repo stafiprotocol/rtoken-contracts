@@ -71,7 +71,17 @@ contract StakePool is IStakePool {
         return 0;
     }
 
-    function delegate(
+    function delegate(address validator, uint256 amount) external override onlyStakeManager {
+        uint256 relayerFee = IStaking(stakingAddress()).getRelayerFee();
+        IStaking(stakingAddress()).delegate{value: amount.add(relayerFee)}(validator, amount);
+    }
+
+    function undelegate(address validator, uint256 amount) external override onlyStakeManager {
+        uint256 relayerFee = IStaking(stakingAddress()).getRelayerFee();
+        IStaking(stakingAddress()).undelegate{value: relayerFee}(validator, amount);
+    }
+
+    function delegateVals(
         address[] calldata validatorList,
         uint256[] calldata amountList
     ) external override onlyStakeManager {
@@ -81,7 +91,7 @@ contract StakePool is IStakePool {
         }
     }
 
-    function undelegate(
+    function undelegateVals(
         address[] calldata validatorList,
         uint256[] calldata amountList
     ) external override onlyStakeManager {
@@ -113,5 +123,13 @@ contract StakePool is IStakePool {
 
     function getMinDelegation() external view override returns (uint256) {
         return IStaking(stakingAddress()).getMinDelegation();
+    }
+
+    function getPendingUndelegateTime(address validator) external view override returns (uint256) {
+        return IStaking(stakingAddress()).getPendingUndelegateTime(address(this), validator);
+    }
+
+    function getRequestInFly() external view override returns (uint256[3] memory) {
+        return IStaking(stakingAddress()).getRequestInFly(address(this));
     }
 }

@@ -30,6 +30,7 @@ contract StakeManager is Multisig, IRateProvider {
     uint256 public eraSeconds;
     uint256 public eraOffset;
     uint256 public unbondingDuration;
+    uint256 public delegatedDiffLimit;
 
     // era state
     uint256 public latestEra; // need migrate
@@ -44,7 +45,7 @@ contract StakeManager is Multisig, IRateProvider {
     mapping(address => uint256) public undistributedRewardOf;
     mapping(address => uint256) public pendingDelegateOf;
     mapping(address => uint256) public pendingUndelegateOf;
-    mapping(uint256 => mapping(address => Operate)) public pendingOperate; //era=>(pool=>operate)
+    mapping(address => mapping(address => uint256)) delegatedOfValidator; // delegator => validator => amount
 
     // unstake info
     uint256 nextUnstakeIndex;
@@ -54,9 +55,7 @@ contract StakeManager is Multisig, IRateProvider {
     // events
     event Stake(address staker, address stakePool, uint256 tokenAmount, uint256 rTokenAmount);
     event Unstake(address staker, address stakePool, uint256 tokenAmount, uint256 rTokenAmount, uint256 burnAmount);
-    event ExecuteNewEra(uint256 indexed era, uint256 block);
-    event ExecuteOperate(uint256 indexed era, uint256 block);
-    event ExecuteOperateAck(uint256 indexed era, uint256 block);
+    event ExecuteNewEra(uint256 indexed era, uint256 rate, uint256 block);
 
     function init(
         address[] calldata _initialVoters,
@@ -77,121 +76,7 @@ contract StakeManager is Multisig, IRateProvider {
         transferGas = 2300;
         eraSeconds = 86400;
         eraOffset = 18033;
-    }
-
-    function migrate(
-        address _stakePoolAddress,
-        address _validator,
-        uint256 _bond,
-        uint256 _unbond,
-        uint256 _active, // delegated + pendingDeleagte + undistributedReward
-        uint256 _pendingDelegate,
-        uint256 _rate,
-        uint256 _totalRTokenSupply,
-        uint256 _totalProtocolFee,
-        uint256 _era,
-        uint256 latestRewardtimestamp,
-        uint256 undistributedReward //pending reward + claimable reward
-    ) external onlyAdmin {
-        require(bondedPools.add(_stakePoolAddress), "already exist");
-
-        validatorsOf[_stakePoolAddress].add(_validator);
-        poolInfoOf[_stakePoolAddress] = PoolInfo({
-            era: _era,
-            eraState: EraState.OperateAckExecuted,
-            bond: _bond,
-            unbond: _unbond,
-            active: _active
-        });
-        pendingDelegateOf[_stakePoolAddress] = _pendingDelegate;
-        rate = _rate;
-        totalRTokenSupply = _totalRTokenSupply;
-        totalProtocolFee = _totalProtocolFee;
-        latestEra = _era;
-        latestRewardTimestampOf[_stakePoolAddress] = latestRewardtimestamp;
-        undistributedRewardOf[_stakePoolAddress] = undistributedReward;
-    }
-
-    // ------ settings
-
-    function addStakePool(address _stakePool) external onlyAdmin {
-        require(allPoolEraStateIs(latestEra, EraState.OperateAckExecuted, true), "eraState not match");
-        require(bondedPools.add(_stakePool), "pool exist");
-    }
-
-    function rmStakePool(address _stakePool) external onlyAdmin {
-        PoolInfo memory poolInfo = poolInfoOf[_stakePool];
-        require(allPoolEraStateIs(latestEra, EraState.OperateAckExecuted, true), "eraState not match");
-        require(poolInfo.active == 0 && poolInfo.bond == 0 && poolInfo.unbond == 0, "pool not empty");
-        require(IStakePool(_stakePool).getTotalDelegated() == 0, "delegate not empty");
-        require(
-            pendingDelegateOf[_stakePool] == 0 &&
-                pendingUndelegateOf[_stakePool] == 0 &&
-                undistributedRewardOf[_stakePool] == 0,
-            "pending not empty"
-        );
-
-        require(bondedPools.remove(_stakePool), "pool not exist");
-    }
-
-    function addValidator(address _stakePool, address _validator) external onlyAdmin {
-        require(allPoolEraStateIs(latestEra, EraState.OperateAckExecuted, true), "eraState not match");
-        validatorsOf[_stakePool].add(_validator);
-    }
-
-    function rmValidator(address _stakePool, address _validator) external onlyAdmin {
-        require(allPoolEraStateIs(latestEra, EraState.OperateAckExecuted, true), "eraState not match");
-        require(IStakePool(_stakePool).getDelegated(_validator) == 0, "delegate not empty");
-        validatorsOf[_stakePool].remove(_validator);
-    }
-
-    function redelegate(
-        address _stakePool,
-        address _srcValidator,
-        address _dstValidator,
-        uint256 _amount
-    ) external onlyAdmin {
-        require(allPoolEraStateIs(latestEra, EraState.OperateAckExecuted, true), "eraState not match");
-        require(
-            validatorsOf[_stakePool].contains(_srcValidator) && validatorsOf[_stakePool].contains(_dstValidator),
-            "val not exist"
-        );
-        IStakePool(_stakePool).redelegate(_srcValidator, _dstValidator, _amount);
-    }
-
-    function setParams(
-        uint256 _unstakeFeeCommission,
-        uint256 _protocolFeeCommission,
-        uint256 _relayerFee,
-        uint256 _minStakeAmount,
-        uint256 _unbondingDuration,
-        uint256 _rateChangeLimit,
-        uint256 _eraSeconds,
-        uint256 _eraOffset,
-        uint256 _transferGas
-    ) external onlyAdmin {
-        unstakeFeeCommission = _unstakeFeeCommission == 1 ? unstakeFeeCommission : _unstakeFeeCommission;
-        protocolFeeCommission = _protocolFeeCommission == 1 ? protocolFeeCommission : _protocolFeeCommission;
-        relayerFee = _relayerFee == 1 ? relayerFee : _relayerFee;
-        minStakeAmount = _minStakeAmount == 0 ? minStakeAmount : _minStakeAmount;
-        unbondingDuration = _unbondingDuration == 0 ? unbondingDuration : _unbondingDuration;
-        rateChangeLimit = _rateChangeLimit == 0 ? rateChangeLimit : _rateChangeLimit;
-        eraSeconds = _eraSeconds == 0 ? eraSeconds : _eraSeconds;
-        eraOffset = _eraOffset == 0 ? eraOffset : _eraOffset;
-        transferGas = _transferGas == 0 ? transferGas : _transferGas;
-    }
-
-    function toggleStakeSwitch() external onlyAdmin {
-        stakeSwitch = !stakeSwitch;
-    }
-
-    function withdrawProtocolFee(address _to) external onlyAdmin {
-        IERC20(rTokenAddress).safeTransfer(_to, IERC20(rTokenAddress).balanceOf(address(this)));
-    }
-
-    function withdrawRelayerFee(address _to) external onlyAdmin {
-        (bool success, ) = _to.call{value: address(this).balance}("");
-        require(success, "failed to withdraw");
+        delegatedDiffLimit = 10e8;
     }
 
     // ----- getters
@@ -206,20 +91,6 @@ contract StakeManager is Multisig, IRateProvider {
 
     function getUnstakeRelayerFee() public view returns (uint256) {
         return relayerFee;
-    }
-
-    function allPoolEraStateIs(uint256 _era, EraState _eraState, bool _skipUninitialized) public view returns (bool) {
-        uint256 poolLength = bondedPools.length();
-        for (uint256 i = 0; i < poolLength; ++i) {
-            PoolInfo memory poolInfo = poolInfoOf[bondedPools.at(i)];
-            if (_skipUninitialized && poolInfo.eraState == EraState.Uninitialized) {
-                continue;
-            }
-            if (poolInfo.era != _era || poolInfo.eraState != _eraState) {
-                return false;
-            }
-        }
-        return true;
     }
 
     function getBondedPools() external view returns (address[] memory pools) {
@@ -250,6 +121,112 @@ contract StakeManager is Multisig, IRateProvider {
         return block.timestamp.div(eraSeconds).sub(eraOffset);
     }
 
+    // ------ settings
+
+    function migrate(
+        address _stakePoolAddress,
+        address _validator,
+        uint256 _bond,
+        uint256 _unbond,
+        uint256 _active, // delegated + pendingDeleagte + undistributedReward
+        uint256 _pendingDelegate,
+        uint256 _rate,
+        uint256 _totalRTokenSupply,
+        uint256 _totalProtocolFee,
+        uint256 _era,
+        uint256 _latestRewardtimestamp,
+        uint256 _undistributedReward //pending reward + claimable reward
+    ) external onlyAdmin {
+        require(bondedPools.add(_stakePoolAddress), "already exist");
+
+        validatorsOf[_stakePoolAddress].add(_validator);
+        poolInfoOf[_stakePoolAddress] = PoolInfo({era: _era, bond: _bond, unbond: _unbond, active: _active});
+        pendingDelegateOf[_stakePoolAddress] = _pendingDelegate;
+        rate = _rate;
+        totalRTokenSupply = _totalRTokenSupply;
+        totalProtocolFee = _totalProtocolFee;
+        latestEra = _era;
+        latestRewardTimestampOf[_stakePoolAddress] = _latestRewardtimestamp;
+        undistributedRewardOf[_stakePoolAddress] = _undistributedReward;
+    }
+
+    function addStakePool(address _stakePool) external onlyAdmin {
+        require(bondedPools.add(_stakePool), "pool exist");
+    }
+
+    function rmStakePool(address _stakePool) external onlyAdmin {
+        PoolInfo memory poolInfo = poolInfoOf[_stakePool];
+        require(poolInfo.active == 0 && poolInfo.bond == 0 && poolInfo.unbond == 0, "pool not empty");
+        require(IStakePool(_stakePool).getTotalDelegated() == 0, "delegate not empty");
+        require(
+            pendingDelegateOf[_stakePool] == 0 &&
+                pendingUndelegateOf[_stakePool] == 0 &&
+                undistributedRewardOf[_stakePool] == 0,
+            "pending not empty"
+        );
+
+        require(bondedPools.remove(_stakePool), "pool not exist");
+    }
+
+    function addValidator(address _stakePool, address _validator) external onlyAdmin {
+        validatorsOf[_stakePool].add(_validator);
+    }
+
+    function rmValidator(address _stakePool, address _validator) external onlyAdmin {
+        require(IStakePool(_stakePool).getDelegated(_validator) == 0, "delegate not empty");
+        validatorsOf[_stakePool].remove(_validator);
+    }
+
+    function redelegate(
+        address _stakePool,
+        address _srcValidator,
+        address _dstValidator,
+        uint256 _amount
+    ) external onlyAdmin {
+        require(
+            validatorsOf[_stakePool].contains(_srcValidator) && validatorsOf[_stakePool].contains(_dstValidator),
+            "val not exist"
+        );
+        IStakePool(_stakePool).redelegate(_srcValidator, _dstValidator, _amount);
+    }
+
+    function setParams(
+        uint256 _unstakeFeeCommission,
+        uint256 _protocolFeeCommission,
+        uint256 _relayerFee,
+        uint256 _minStakeAmount,
+        uint256 _unbondingDuration,
+        uint256 _rateChangeLimit,
+        uint256 _eraSeconds,
+        uint256 _eraOffset,
+        uint256 _transferGas,
+        uint256 _delegatedDiffLimit
+    ) external onlyAdmin {
+        unstakeFeeCommission = _unstakeFeeCommission == 1 ? unstakeFeeCommission : _unstakeFeeCommission;
+        protocolFeeCommission = _protocolFeeCommission == 1 ? protocolFeeCommission : _protocolFeeCommission;
+        relayerFee = _relayerFee == 1 ? relayerFee : _relayerFee;
+        minStakeAmount = _minStakeAmount == 0 ? minStakeAmount : _minStakeAmount;
+        unbondingDuration = _unbondingDuration == 0 ? unbondingDuration : _unbondingDuration;
+        rateChangeLimit = _rateChangeLimit == 0 ? rateChangeLimit : _rateChangeLimit;
+        eraSeconds = _eraSeconds == 0 ? eraSeconds : _eraSeconds;
+        eraOffset = _eraOffset == 0 ? eraOffset : _eraOffset;
+        transferGas = _transferGas == 0 ? transferGas : _transferGas;
+        delegatedDiffLimit = _delegatedDiffLimit == 0 ? delegatedDiffLimit : _delegatedDiffLimit;
+    }
+
+    function toggleStakeSwitch() external onlyAdmin {
+        stakeSwitch = !stakeSwitch;
+    }
+
+    function withdrawProtocolFee(address _to) external onlyAdmin {
+        IERC20(rTokenAddress).safeTransfer(_to, IERC20(rTokenAddress).balanceOf(address(this)));
+    }
+
+    function withdrawRelayerFee(address _to) external onlyAdmin {
+        (bool success, ) = _to.call{value: address(this).balance}("");
+        require(success, "failed to withdraw");
+    }
+
     // ----- vote
 
     function newEra(
@@ -266,42 +243,6 @@ contract StakeManager is Multisig, IRateProvider {
         // Finalize if Threshold has been reached
         if (proposal._yesVotesTotal >= threshold) {
             _executeNewEra(_era, _poolAddressList, _newRewardList, _latestRewardTimestampList);
-
-            proposal._status = ProposalStatus.Executed;
-            emit ProposalExecuted(proposalId);
-        }
-
-        proposals[proposalId] = proposal;
-    }
-
-    function operate(
-        uint256 _era,
-        address _poolAddress,
-        Action _action,
-        address[] calldata _valList,
-        uint256[] calldata _amountList
-    ) external onlyVoter {
-        bytes32 proposalId = keccak256(abi.encodePacked("operate", _era, _poolAddress, _action, _valList, _amountList));
-        Proposal memory proposal = _checkProposal(proposalId);
-
-        // Finalize if Threshold has been reached
-        if (proposal._yesVotesTotal >= threshold) {
-            _executeOperate(_era, _poolAddress, _action, _valList, _amountList);
-
-            proposal._status = ProposalStatus.Executed;
-            emit ProposalExecuted(proposalId);
-        }
-
-        proposals[proposalId] = proposal;
-    }
-
-    function operateAck(uint256 _era, address _poolAddress, uint256[] calldata _successOpIndexList) external onlyVoter {
-        bytes32 proposalId = keccak256(abi.encodePacked("operateAck", _era, _poolAddress, _successOpIndexList));
-        Proposal memory proposal = _checkProposal(proposalId);
-
-        // Finalize if Threshold has been reached
-        if (proposal._yesVotesTotal >= threshold) {
-            _executeOperateAck(_era, _poolAddress, _successOpIndexList);
 
             proposal._status = ProposalStatus.Executed;
             emit ProposalExecuted(proposalId);
@@ -417,6 +358,96 @@ contract StakeManager is Multisig, IRateProvider {
         }
     }
 
+    // ----- permissionless
+
+    function settle(address _poolAddress) external {
+        PoolInfo memory poolInfo = poolInfoOf[_poolAddress];
+        require(bondedPools.contains(_poolAddress), "pool not exist");
+
+        _checkAndRepairDelegated(_poolAddress);
+
+        // claim undelegated
+        IStakePool(_poolAddress).checkAndClaimUndelegated();
+
+        // cal pending value
+        uint256 pendingDelegate = pendingDelegateOf[_poolAddress].add(poolInfo.bond);
+        uint256 pendingUndelegate = pendingUndelegateOf[_poolAddress].add(poolInfo.unbond);
+
+        uint256 diff = pendingDelegate > pendingUndelegate
+            ? pendingDelegate.sub(pendingUndelegate)
+            : pendingUndelegate.sub(pendingDelegate);
+
+        pendingDelegate = pendingDelegate.sub(diff);
+        pendingUndelegate = pendingUndelegate.sub(diff);
+
+        // update pool state
+        poolInfo.bond = 0;
+        poolInfo.unbond = 0;
+        poolInfoOf[_poolAddress] = poolInfo;
+
+        // delegate and update pending value
+        uint256 minDelegation = IStakePool(_poolAddress).getMinDelegation();
+        if (pendingDelegate >= minDelegation) {
+            address val = validatorsOf[_poolAddress].at(0);
+
+            delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].add(pendingDelegate);
+            IStakePool(_poolAddress).delegate(val, pendingDelegate);
+
+            pendingDelegateOf[_poolAddress] = 0;
+        }
+
+        // undelegate and update pending value
+        if (pendingUndelegate > 0) {
+            uint256 needUndelegate = pendingUndelegate;
+            uint256 realUndelegate = 0;
+
+            for (uint256 i = 0; i < validatorsOf[_poolAddress].length(); ++i) {
+                if (needUndelegate == 0) {
+                    break;
+                }
+                address val = validatorsOf[_poolAddress].at(i);
+
+                if (block.timestamp < IStakePool(_poolAddress).getPendingUndelegateTime(val)) {
+                    continue;
+                }
+
+                uint256 govDelegated = IStakePool(_poolAddress).getDelegated(val);
+                if (needUndelegate < govDelegated) {
+                    uint256 willUndelegate = needUndelegate;
+                    if (willUndelegate < minDelegation) {
+                        willUndelegate = minDelegation;
+                        if (willUndelegate > govDelegated) {
+                            willUndelegate = govDelegated;
+                        }
+
+                        delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].sub(
+                            willUndelegate
+                        );
+                        IStakePool(_poolAddress).undelegate(val, willUndelegate);
+
+                        needUndelegate = 0;
+                        realUndelegate = realUndelegate.add(willUndelegate);
+                    }
+                } else {
+                    delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].sub(govDelegated);
+                    IStakePool(_poolAddress).undelegate(val, govDelegated);
+
+                    needUndelegate = needUndelegate.sub(govDelegated);
+                    realUndelegate = realUndelegate.add(govDelegated);
+                }
+            }
+
+            if (realUndelegate > pendingUndelegate) {
+                pendingDelegateOf[_poolAddress] = pendingDelegateOf[_poolAddress].add(
+                    realUndelegate.sub(pendingUndelegate)
+                );
+                pendingUndelegateOf[_poolAddress] = 0;
+            } else {
+                pendingUndelegateOf[_poolAddress] = pendingUndelegate.sub(realUndelegate);
+            }
+        }
+    }
+
     // ----- helper
 
     function _checkProposal(bytes32 _proposalId) private view returns (Proposal memory proposal) {
@@ -432,6 +463,30 @@ contract StakeManager is Multisig, IRateProvider {
         proposal._yesVotesTotal++;
     }
 
+    function _checkAndRepairDelegated(address _poolAddress) private {
+        uint256[3] memory requestInFly = IStakePool(_poolAddress).getRequestInFly();
+        require(requestInFly[0] == 0 && requestInFly[1] == 0 && requestInFly[2] == 0, "request in fly");
+
+        uint256 valLength = validatorsOf[_poolAddress].length();
+        for (uint256 i = 0; i < valLength; ++i) {
+            address val = validatorsOf[_poolAddress].at(i);
+            uint256 govDelegated = IStakePool(_poolAddress).getDelegated(val);
+            uint256 localDelegated = delegatedOfValidator[_poolAddress][val];
+
+            if (govDelegated > localDelegated.add(delegatedDiffLimit)) {
+                uint256 diff = govDelegated.sub(localDelegated);
+
+                pendingUndelegateOf[_poolAddress] = pendingUndelegateOf[_poolAddress].add(diff);
+                delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].add(diff);
+            } else if (localDelegated > govDelegated.add(delegatedDiffLimit)) {
+                uint256 diff = localDelegated.sub(govDelegated);
+
+                pendingDelegateOf[_poolAddress] = pendingDelegateOf[_poolAddress].add(diff);
+                delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].sub(diff);
+            }
+        }
+    }
+
     function _executeNewEra(
         uint256 _era,
         address[] calldata _poolAddressList,
@@ -440,7 +495,6 @@ contract StakeManager is Multisig, IRateProvider {
     ) private {
         require(currentEra() >= _era, "calEra not match");
         require(_era == latestEra.add(1), "latestEra not match");
-        require(allPoolEraStateIs(latestEra, EraState.OperateAckExecuted, true), "eraState not match");
         require(
             _poolAddressList.length == bondedPools.length() &&
                 _poolAddressList.length == _newRewardList.length &&
@@ -453,7 +507,6 @@ contract StakeManager is Multisig, IRateProvider {
         // update pool info
         uint256 totalNewReward;
         uint256 totalNewActive;
-        uint256 minDelegation = IStakePool(bondedPools.at(0)).getMinDelegation();
         for (uint256 i = 0; i < _poolAddressList.length; ++i) {
             address poolAddress = _poolAddressList[i];
             require(
@@ -461,6 +514,8 @@ contract StakeManager is Multisig, IRateProvider {
                     _latestRewardTimestampList[i] < block.timestamp,
                 "timestamp not match"
             );
+
+            _checkAndRepairDelegated(poolAddress);
 
             // update latest reward timestamp
             latestRewardTimestampOf[poolAddress] = _latestRewardTimestampList[i];
@@ -509,12 +564,8 @@ contract StakeManager is Multisig, IRateProvider {
             // update pool state
             poolInfo.era = latestEra;
             poolInfo.active = poolNewActive;
-
-            if (pendingUndelegateOf[poolAddress] == 0 && pendingDelegateOf[poolAddress] < minDelegation) {
-                poolInfo.eraState = EraState.OperateAckExecuted;
-            } else {
-                poolInfo.eraState = EraState.NewEraExecuted;
-            }
+            poolInfo.bond = 0;
+            poolInfo.unbond = 0;
 
             poolInfoOf[poolAddress] = poolInfo;
         }
@@ -534,65 +585,6 @@ contract StakeManager is Multisig, IRateProvider {
         uint256 rateChange = newRate > rate ? newRate.sub(rate) : rate.sub(newRate);
         require(rateChange.mul(1e18).div(rate) < rateChangeLimit, "rate change over limit");
 
-        emit ExecuteNewEra(_era, block.number);
-    }
-
-    function _executeOperate(
-        uint256 _era,
-        address _poolAddress,
-        Action _action,
-        address[] calldata _valList,
-        uint256[] calldata _amountList
-    ) private {
-        require(latestEra == _era, "era not match");
-        require(poolInfoOf[_poolAddress].eraState == EraState.NewEraExecuted, "eraState not match");
-        for (uint256 i = 0; i < _valList.length; ++i) {
-            require(_amountList[i] > 0, "amount zero");
-            require(validatorsOf[_poolAddress].contains(_valList[i]), "val not exist");
-        }
-
-        pendingOperate[_era][_poolAddress] = Operate({action: _action, valList: _valList, amountList: _amountList});
-
-        if (_action == Action.Delegate) {
-            IStakePool(_poolAddress).delegate(_valList, _amountList);
-        } else if (_action == Action.Undelegate) {
-            IStakePool(_poolAddress).undelegate(_valList, _amountList);
-        }
-
-        poolInfoOf[_poolAddress].eraState = EraState.OperateExecuted;
-
-        emit ExecuteOperate(_era, block.number);
-    }
-
-    function _executeOperateAck(uint256 _era, address _poolAddress, uint256[] calldata _successOpIndexList) private {
-        require(latestEra == _era, "era not match");
-        require(poolInfoOf[_poolAddress].eraState == EraState.OperateExecuted, "eraState not match");
-
-        Operate memory op = pendingOperate[_era][_poolAddress];
-        if (op.action == Action.Delegate) {
-            for (uint256 i = 0; i < _successOpIndexList.length; ++i) {
-                pendingDelegateOf[_poolAddress] = pendingDelegateOf[_poolAddress].sub(
-                    op.amountList[_successOpIndexList[i]]
-                );
-            }
-        } else if (op.action == Action.Undelegate) {
-            for (uint256 i = 0; i < _successOpIndexList.length; ++i) {
-                uint256 undelegateAmount = op.amountList[_successOpIndexList[i]];
-                uint256 pendingUndelegate = pendingUndelegateOf[_poolAddress];
-
-                if (undelegateAmount > pendingUndelegate) {
-                    pendingDelegateOf[_poolAddress] = pendingDelegateOf[_poolAddress].add(
-                        undelegateAmount.sub(pendingUndelegate)
-                    );
-                    pendingUndelegateOf[_poolAddress] = 0;
-                } else {
-                    pendingUndelegateOf[_poolAddress] = pendingUndelegate.sub(undelegateAmount);
-                }
-            }
-        }
-
-        poolInfoOf[_poolAddress].eraState = EraState.OperateAckExecuted;
-
-        emit ExecuteOperateAck(_era, block.number);
+        emit ExecuteNewEra(_era, newRate, block.number);
     }
 }
