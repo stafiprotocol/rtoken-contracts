@@ -59,6 +59,7 @@ contract StakeManager is Multisig, IRateProvider {
     event Withdraw(address staker, address stakePool, uint256 tokenAmount, uint256[] unstakeIndexList);
     event ExecuteNewEra(uint256 indexed era, uint256 rate);
     event Settle(address indexed poolAddress);
+    event RepairDelegated(uint256 govDelegated, uint256 localDelegated);
 
     // init
     function init(
@@ -383,15 +384,12 @@ contract StakeManager is Multisig, IRateProvider {
         pendingDelegate = pendingDelegate.sub(diff);
         pendingUndelegate = pendingUndelegate.sub(diff);
 
-        pendingDelegateOf[_poolAddress] = pendingDelegate;
-        pendingUndelegateOf[_poolAddress] = pendingUndelegate;
-
         // update pool state
         poolInfo.bond = 0;
         poolInfo.unbond = 0;
         poolInfoOf[_poolAddress] = poolInfo;
 
-        // delegate and update pending value
+        // delegate and cal pending value
         uint256 minDelegation = IStakePool(_poolAddress).getMinDelegation();
         if (pendingDelegate >= minDelegation) {
             address val = validatorsOf[_poolAddress].at(0);
@@ -399,10 +397,10 @@ contract StakeManager is Multisig, IRateProvider {
             delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].add(pendingDelegate);
             IStakePool(_poolAddress).delegate(val, pendingDelegate);
 
-            pendingDelegateOf[_poolAddress] = 0;
+            pendingDelegate = 0;
         }
 
-        // undelegate and update pending value
+        // undelegate and cal pending value
         if (pendingUndelegate > 0) {
             uint256 needUndelegate = pendingUndelegate;
             uint256 realUndelegate = 0;
@@ -444,14 +442,16 @@ contract StakeManager is Multisig, IRateProvider {
             }
 
             if (realUndelegate > pendingUndelegate) {
-                pendingDelegateOf[_poolAddress] = pendingDelegateOf[_poolAddress].add(
-                    realUndelegate.sub(pendingUndelegate)
-                );
-                pendingUndelegateOf[_poolAddress] = 0;
+                pendingDelegate = pendingDelegate.add(realUndelegate.sub(pendingUndelegate));
+                pendingUndelegate = 0;
             } else {
-                pendingUndelegateOf[_poolAddress] = pendingUndelegate.sub(realUndelegate);
+                pendingUndelegate = pendingUndelegate.sub(realUndelegate);
             }
         }
+
+        // update pending value
+        pendingDelegateOf[_poolAddress] = pendingDelegate;
+        pendingUndelegateOf[_poolAddress] = pendingUndelegate;
 
         emit Settle(_poolAddress);
     }
@@ -481,16 +481,21 @@ contract StakeManager is Multisig, IRateProvider {
             uint256 govDelegated = IStakePool(_poolAddress).getDelegated(val);
             uint256 localDelegated = delegatedOfValidator[_poolAddress][val];
 
+            uint256 diff;
             if (govDelegated > localDelegated.add(delegatedDiffLimit)) {
-                uint256 diff = govDelegated.sub(localDelegated);
+                diff = govDelegated.sub(localDelegated);
 
                 pendingUndelegateOf[_poolAddress] = pendingUndelegateOf[_poolAddress].add(diff);
-                delegatedOfValidator[_poolAddress][val] = govDelegated;
             } else if (localDelegated > govDelegated.add(delegatedDiffLimit)) {
-                uint256 diff = localDelegated.sub(govDelegated);
+                diff = localDelegated.sub(govDelegated);
 
                 pendingDelegateOf[_poolAddress] = pendingDelegateOf[_poolAddress].add(diff);
+            }
+
+            if (diff > 0) {
                 delegatedOfValidator[_poolAddress][val] = govDelegated;
+
+                emit RepairDelegated(govDelegated, localDelegated);
             }
         }
     }
