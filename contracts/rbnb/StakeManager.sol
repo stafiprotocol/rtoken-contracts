@@ -79,7 +79,7 @@ contract StakeManager is Multisig, IRateProvider {
         transferGas = 2300;
         eraSeconds = 86400;
         eraOffset = 18033;
-        delegatedDiffLimit = 10e8;
+        delegatedDiffLimit = 1e11;
     }
 
     // ----- getters
@@ -160,6 +160,28 @@ contract StakeManager is Multisig, IRateProvider {
         undistributedRewardOf[_stakePoolAddress] = _undistributedReward;
     }
 
+    function setParams(
+        uint256 _unstakeFeeCommission,
+        uint256 _protocolFeeCommission,
+        uint256 _minStakeAmount,
+        uint256 _unbondingDuration,
+        uint256 _rateChangeLimit,
+        uint256 _eraSeconds,
+        uint256 _eraOffset,
+        uint256 _transferGas,
+        uint256 _delegatedDiffLimit
+    ) external onlyAdmin {
+        unstakeFeeCommission = _unstakeFeeCommission == 1 ? unstakeFeeCommission : _unstakeFeeCommission;
+        protocolFeeCommission = _protocolFeeCommission == 1 ? protocolFeeCommission : _protocolFeeCommission;
+        minStakeAmount = _minStakeAmount == 0 ? minStakeAmount : _minStakeAmount;
+        unbondingDuration = _unbondingDuration == 0 ? unbondingDuration : _unbondingDuration;
+        rateChangeLimit = _rateChangeLimit == 0 ? rateChangeLimit : _rateChangeLimit;
+        eraSeconds = _eraSeconds == 0 ? eraSeconds : _eraSeconds;
+        eraOffset = _eraOffset == 0 ? eraOffset : _eraOffset;
+        transferGas = _transferGas == 0 ? transferGas : _transferGas;
+        delegatedDiffLimit = _delegatedDiffLimit == 0 ? delegatedDiffLimit : _delegatedDiffLimit;
+    }
+
     function addStakePool(address _stakePool) external onlyAdmin {
         require(bondedPools.add(_stakePool), "pool exist");
     }
@@ -198,28 +220,6 @@ contract StakeManager is Multisig, IRateProvider {
             "val not exist"
         );
         IStakePool(_stakePool).redelegate(_srcValidator, _dstValidator, _amount);
-    }
-
-    function setParams(
-        uint256 _unstakeFeeCommission,
-        uint256 _protocolFeeCommission,
-        uint256 _minStakeAmount,
-        uint256 _unbondingDuration,
-        uint256 _rateChangeLimit,
-        uint256 _eraSeconds,
-        uint256 _eraOffset,
-        uint256 _transferGas,
-        uint256 _delegatedDiffLimit
-    ) external onlyAdmin {
-        unstakeFeeCommission = _unstakeFeeCommission == 1 ? unstakeFeeCommission : _unstakeFeeCommission;
-        protocolFeeCommission = _protocolFeeCommission == 1 ? protocolFeeCommission : _protocolFeeCommission;
-        minStakeAmount = _minStakeAmount == 0 ? minStakeAmount : _minStakeAmount;
-        unbondingDuration = _unbondingDuration == 0 ? unbondingDuration : _unbondingDuration;
-        rateChangeLimit = _rateChangeLimit == 0 ? rateChangeLimit : _rateChangeLimit;
-        eraSeconds = _eraSeconds == 0 ? eraSeconds : _eraSeconds;
-        eraOffset = _eraOffset == 0 ? eraOffset : _eraOffset;
-        transferGas = _transferGas == 0 ? transferGas : _transferGas;
-        delegatedDiffLimit = _delegatedDiffLimit == 0 ? delegatedDiffLimit : _delegatedDiffLimit;
     }
 
     function withdrawProtocolFee(address _to) external onlyAdmin {
