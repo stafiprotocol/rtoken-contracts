@@ -38,18 +38,19 @@ contract StakeManager is Multisig, IRateProvider {
     mapping(address => uint256) public undistributedRewardOf;
     mapping(address => uint256) public pendingDelegateOf;
     mapping(address => uint256) public pendingUndelegateOf;
-    mapping(address => mapping(address => uint256)) delegatedOfValidator; // delegator => validator => amount
-    mapping(uint256 => uint256) eraRate;
+    mapping(address => mapping(address => uint256)) public delegatedOfValidator; // delegator => validator => amount
+    mapping(uint256 => uint256) public eraRate;
 
     // unstake info
     uint256 nextUnstakeIndex;
-    mapping(uint256 => UnstakeInfo) unstakeAtIndex;
+    mapping(uint256 => UnstakeInfo) public unstakeAtIndex;
     mapping(address => EnumerableSet.UintSet) unstakeOfUser;
 
     // events
     event Stake(address staker, address stakePool, uint256 tokenAmount, uint256 rTokenAmount);
     event Unstake(address staker, address stakePool, uint256 tokenAmount, uint256 rTokenAmount, uint256 burnAmount);
-    event ExecuteNewEra(uint256 indexed era, uint256 rate, uint256 block);
+    event ExecuteNewEra(uint256 indexed era, uint256 rate);
+    event Settle(address indexed poolAddress);
 
     function init(
         address[] calldata _initialVoters,
@@ -371,6 +372,9 @@ contract StakeManager is Multisig, IRateProvider {
         pendingDelegate = pendingDelegate.sub(diff);
         pendingUndelegate = pendingUndelegate.sub(diff);
 
+        pendingDelegateOf[_poolAddress] = pendingDelegate;
+        pendingUndelegateOf[_poolAddress] = pendingUndelegate;
+
         // update pool state
         poolInfo.bond = 0;
         poolInfo.unbond = 0;
@@ -437,6 +441,8 @@ contract StakeManager is Multisig, IRateProvider {
                 pendingUndelegateOf[_poolAddress] = pendingUndelegate.sub(realUndelegate);
             }
         }
+
+        emit Settle(_poolAddress);
     }
 
     // ----- helper
@@ -579,6 +585,6 @@ contract StakeManager is Multisig, IRateProvider {
         rate = newRate;
         eraRate[_era] = newRate;
 
-        emit ExecuteNewEra(_era, newRate, block.number);
+        emit ExecuteNewEra(_era, newRate);
     }
 }
