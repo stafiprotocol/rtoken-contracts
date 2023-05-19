@@ -42,16 +42,25 @@ contract StakeManager is Multisig, IRateProvider {
     mapping(uint256 => uint256) public eraRate;
 
     // unstake info
-    uint256 nextUnstakeIndex;
+    uint256 public nextUnstakeIndex;
     mapping(uint256 => UnstakeInfo) public unstakeAtIndex;
     mapping(address => EnumerableSet.UintSet) unstakeOfUser;
 
     // events
     event Stake(address staker, address stakePool, uint256 tokenAmount, uint256 rTokenAmount);
-    event Unstake(address staker, address stakePool, uint256 tokenAmount, uint256 rTokenAmount, uint256 burnAmount);
+    event Unstake(
+        address staker,
+        address stakePool,
+        uint256 tokenAmount,
+        uint256 rTokenAmount,
+        uint256 burnAmount,
+        uint256 unstakeIndex
+    );
+    event Withdraw(address staker, address stakePool, uint256 tokenAmount, uint256[] unstakeIndexList);
     event ExecuteNewEra(uint256 indexed era, uint256 rate);
     event Settle(address indexed poolAddress);
 
+    // init
     function init(
         address[] calldata _initialVoters,
         uint256 _initialThreshold,
@@ -319,9 +328,9 @@ contract StakeManager is Multisig, IRateProvider {
         });
         unstakeOfUser[msg.sender].add(nextUnstakeIndex);
 
-        nextUnstakeIndex = nextUnstakeIndex.add(1);
+        emit Unstake(msg.sender, _stakePoolAddress, tokenAmount, _rTokenAmount, leftRTokenAmount, nextUnstakeIndex);
 
-        emit Unstake(msg.sender, _stakePoolAddress, tokenAmount, _rTokenAmount, leftRTokenAmount);
+        nextUnstakeIndex = nextUnstakeIndex.add(1);
     }
 
     function withdrawWithPool(address _poolAddress) public {
@@ -348,6 +357,8 @@ contract StakeManager is Multisig, IRateProvider {
         if (totalWithdrawAmount > 0) {
             IStakePool(_poolAddress).withdrawForStaker(msg.sender, totalWithdrawAmount);
         }
+
+        emit Withdraw(msg.sender, _poolAddress, totalWithdrawAmount, unstakeIndexList);
     }
 
     // ----- permissionless
