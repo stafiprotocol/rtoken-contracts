@@ -136,4 +136,8 @@ contract StakePool is IStakePool {
     function getRelayerFee() external view override returns (uint256) {
         return IStaking(stakingAddress()).getRelayerFee();
     }
+
+    function getPendingRedelegateTime(address valSrc, address valDst) external view override returns (uint256) {
+        return IStaking(stakingAddress()).getPendingRedelegateTime(address(this), valSrc, valDst);
+    }
 }
