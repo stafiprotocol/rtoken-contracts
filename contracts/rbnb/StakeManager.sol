@@ -59,7 +59,7 @@ contract StakeManager is Multisig, IRateProvider {
     event Withdraw(address staker, address stakePool, uint256 tokenAmount, uint256[] unstakeIndexList);
     event ExecuteNewEra(uint256 indexed era, uint256 rate);
     event Settle(uint256 indexed era, address indexed poolAddress);
-    event RepairDelegated(uint256 govDelegated, uint256 localDelegated);
+    event RepairDelegated(address poolAddress, uint256 govDelegated, uint256 localDelegated);
 
     // init
     function init(
@@ -209,6 +209,7 @@ contract StakeManager is Multisig, IRateProvider {
     function rmValidator(address _stakePool, address _validator) external onlyAdmin {
         require(IStakePool(_stakePool).getDelegated(_validator) == 0, "delegate not empty");
         validatorsOf[_stakePool].remove(_validator);
+        delegatedOfValidator[_stakePool][_validator] = 0;
     }
 
     function redelegate(
@@ -221,6 +222,10 @@ contract StakeManager is Multisig, IRateProvider {
             validatorsOf[_stakePool].contains(_srcValidator) && validatorsOf[_stakePool].contains(_dstValidator),
             "val not exist"
         );
+
+        delegatedOfValidator[_stakePool][_srcValidator] = delegatedOfValidator[_stakePool][_srcValidator].sub(_amount);
+        delegatedOfValidator[_stakePool][_dstValidator] = delegatedOfValidator[_stakePool][_dstValidator].add(_amount);
+
         IStakePool(_stakePool).redelegate(_srcValidator, _dstValidator, _amount);
     }
 
@@ -493,11 +498,8 @@ contract StakeManager is Multisig, IRateProvider {
                 pendingDelegateOf[_poolAddress] = pendingDelegateOf[_poolAddress].add(diff);
             }
 
-            if (diff > 0) {
-                delegatedOfValidator[_poolAddress][val] = govDelegated;
-
-                emit RepairDelegated(govDelegated, localDelegated);
-            }
+            delegatedOfValidator[_poolAddress][val] = govDelegated;
+            emit RepairDelegated(_poolAddress, govDelegated, localDelegated);
         }
     }
 
