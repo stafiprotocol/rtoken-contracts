@@ -58,7 +58,7 @@ contract StakeManager is Multisig, IRateProvider {
     );
     event Withdraw(address staker, address stakePool, uint256 tokenAmount, uint256[] unstakeIndexList);
     event ExecuteNewEra(uint256 indexed era, uint256 rate);
-    event Settle(address indexed poolAddress);
+    event Settle(uint256 indexed era, address indexed poolAddress);
     event RepairDelegated(uint256 govDelegated, uint256 localDelegated);
 
     // init
@@ -141,6 +141,7 @@ contract StakeManager is Multisig, IRateProvider {
         uint256 _latestRewardtimestamp,
         uint256 _undistributedReward //pending reward + claimable reward
     ) external onlyAdmin {
+        require(rate == 0, "already migrate");
         require(bondedPools.add(_stakePoolAddress), "already exist");
 
         validatorsOf[_stakePoolAddress].add(_validator);
@@ -453,7 +454,7 @@ contract StakeManager is Multisig, IRateProvider {
         pendingDelegateOf[_poolAddress] = pendingDelegate;
         pendingUndelegateOf[_poolAddress] = pendingUndelegate;
 
-        emit Settle(_poolAddress);
+        emit Settle(currentEra(), _poolAddress);
     }
 
     // ----- helper
