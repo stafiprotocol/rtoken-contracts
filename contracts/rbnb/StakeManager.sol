@@ -386,7 +386,6 @@ contract StakeManager is Multisig, IRateProvider {
     // ----- permissionless
 
     function settle(address _poolAddress) public {
-        PoolInfo memory poolInfo = poolInfoOf[_poolAddress];
         require(bondedPools.contains(_poolAddress), "pool not exist");
 
         _checkAndRepairDelegated(_poolAddress);
@@ -394,16 +393,14 @@ contract StakeManager is Multisig, IRateProvider {
         // claim undelegated
         IStakePool(_poolAddress).checkAndClaimUndelegated();
 
+        PoolInfo memory poolInfo = poolInfoOf[_poolAddress];
         // cal pending value
         uint256 pendingDelegate = pendingDelegateOf[_poolAddress].add(poolInfo.bond);
         uint256 pendingUndelegate = pendingUndelegateOf[_poolAddress].add(poolInfo.unbond);
 
-        uint256 diff = pendingDelegate > pendingUndelegate
-            ? pendingDelegate.sub(pendingUndelegate)
-            : pendingUndelegate.sub(pendingDelegate);
-
-        pendingDelegate = pendingDelegate.sub(diff);
-        pendingUndelegate = pendingUndelegate.sub(diff);
+        uint256 deduction = pendingDelegate > pendingUndelegate ? pendingUndelegate : pendingDelegate;
+        pendingDelegate = pendingDelegate.sub(deduction);
+        pendingUndelegate = pendingUndelegate.sub(deduction);
 
         // update pool state
         poolInfo.bond = 0;
@@ -576,12 +573,9 @@ contract StakeManager is Multisig, IRateProvider {
             uint256 pendingDelegate = pendingDelegateOf[poolAddress].add(poolInfo.bond);
             uint256 pendingUndelegate = pendingUndelegateOf[poolAddress].add(poolInfo.unbond);
 
-            uint256 diff = pendingDelegate > pendingUndelegate
-                ? pendingDelegate.sub(pendingUndelegate)
-                : pendingUndelegate.sub(pendingDelegate);
-
-            pendingDelegateOf[poolAddress] = pendingDelegate.sub(diff);
-            pendingUndelegateOf[poolAddress] = pendingUndelegate.sub(diff);
+            uint256 deduction = pendingDelegate > pendingUndelegate ? pendingUndelegate : pendingDelegate;
+            pendingDelegateOf[poolAddress] = pendingDelegate.sub(deduction);
+            pendingUndelegateOf[poolAddress] = pendingUndelegate.sub(deduction);
 
             // cal total active
             uint256 poolNewActive = IStakePool(poolAddress)
