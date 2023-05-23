@@ -60,6 +60,7 @@ contract StakeManager is Multisig, IRateProvider {
     event ExecuteNewEra(uint256 indexed era, uint256 rate);
     event Settle(uint256 indexed era, address indexed pool);
     event RepairDelegated(address pool, address validator, uint256 govDelegated, uint256 localDelegated);
+    event SetUnbondingDuration(uint256 bondingDuration);
 
     // init
     function init(
@@ -176,12 +177,16 @@ contract StakeManager is Multisig, IRateProvider {
         unstakeFeeCommission = _unstakeFeeCommission == 1 ? unstakeFeeCommission : _unstakeFeeCommission;
         protocolFeeCommission = _protocolFeeCommission == 1 ? protocolFeeCommission : _protocolFeeCommission;
         minStakeAmount = _minStakeAmount == 0 ? minStakeAmount : _minStakeAmount;
-        unbondingDuration = _unbondingDuration == 0 ? unbondingDuration : _unbondingDuration;
         rateChangeLimit = _rateChangeLimit == 0 ? rateChangeLimit : _rateChangeLimit;
         eraSeconds = _eraSeconds == 0 ? eraSeconds : _eraSeconds;
         eraOffset = _eraOffset == 0 ? eraOffset : _eraOffset;
         transferGas = _transferGas == 0 ? transferGas : _transferGas;
         delegatedDiffLimit = _delegatedDiffLimit == 0 ? delegatedDiffLimit : _delegatedDiffLimit;
+
+        if (_unbondingDuration > 0) {
+            unbondingDuration = _unbondingDuration;
+            emit SetUnbondingDuration(_unbondingDuration);
+        }
     }
 
     function addStakePool(address _poolAddress) external onlyAdmin {
