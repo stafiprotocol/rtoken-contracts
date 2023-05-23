@@ -47,16 +47,16 @@ contract StakeManager is Multisig, IRateProvider {
     mapping(address => EnumerableSet.UintSet) unstakeOfUser;
 
     // events
-    event Stake(address staker, address stakePool, uint256 tokenAmount, uint256 rTokenAmount);
+    event Stake(address staker, address poolAddress, uint256 tokenAmount, uint256 rTokenAmount);
     event Unstake(
         address staker,
-        address stakePool,
+        address poolAddress,
         uint256 tokenAmount,
         uint256 rTokenAmount,
         uint256 burnAmount,
         uint256 unstakeIndex
     );
-    event Withdraw(address staker, address stakePool, uint256 tokenAmount, uint256[] unstakeIndexList);
+    event Withdraw(address staker, address poolAddress, uint256 tokenAmount, uint256[] unstakeIndexList);
     event ExecuteNewEra(uint256 indexed era, uint256 rate);
     event Settle(uint256 indexed era, address indexed pool);
     event RepairDelegated(address pool, address validator, uint256 govDelegated, uint256 localDelegated);
@@ -128,7 +128,7 @@ contract StakeManager is Multisig, IRateProvider {
     // ------ settings
 
     function migrate(
-        address _stakePoolAddress,
+        address _poolAddress,
         address _validator,
         uint256 _govDelegated,
         uint256 _bond,
@@ -142,24 +142,24 @@ contract StakeManager is Multisig, IRateProvider {
         uint256 _undistributedReward //pending reward + claimable reward
     ) external onlyAdmin {
         require(rate == 0, "already migrate");
-        require(bondedPools.add(_stakePoolAddress), "already exist");
+        require(bondedPools.add(_poolAddress), "already exist");
 
-        validatorsOf[_stakePoolAddress].add(_validator);
-        delegatedOfValidator[_stakePoolAddress][_validator] = _govDelegated;
-        poolInfoOf[_stakePoolAddress] = PoolInfo({
+        validatorsOf[_poolAddress].add(_validator);
+        delegatedOfValidator[_poolAddress][_validator] = _govDelegated;
+        poolInfoOf[_poolAddress] = PoolInfo({
             era: _era,
             bond: _bond,
             unbond: _unbond,
             active: _govDelegated.add(_pendingDelegate).add(_undistributedReward)
         });
-        pendingDelegateOf[_stakePoolAddress] = _pendingDelegate;
+        pendingDelegateOf[_poolAddress] = _pendingDelegate;
         rate = _rate;
         totalRTokenSupply = _totalRTokenSupply;
         totalProtocolFee = _totalProtocolFee;
         latestEra = _era;
         eraRate[_era] = _rate;
-        latestRewardTimestampOf[_stakePoolAddress] = _latestRewardtimestamp;
-        undistributedRewardOf[_stakePoolAddress] = _undistributedReward;
+        latestRewardTimestampOf[_poolAddress] = _latestRewardtimestamp;
+        undistributedRewardOf[_poolAddress] = _undistributedReward;
     }
 
     function setParams(
@@ -184,55 +184,59 @@ contract StakeManager is Multisig, IRateProvider {
         delegatedDiffLimit = _delegatedDiffLimit == 0 ? delegatedDiffLimit : _delegatedDiffLimit;
     }
 
-    function addStakePool(address _stakePool) external onlyAdmin {
-        require(bondedPools.add(_stakePool), "pool exist");
+    function addStakePool(address _poolAddress) external onlyAdmin {
+        require(bondedPools.add(_poolAddress), "pool exist");
     }
 
-    function rmStakePool(address _stakePool) external onlyAdmin {
-        PoolInfo memory poolInfo = poolInfoOf[_stakePool];
+    function rmStakePool(address _poolAddress) external onlyAdmin {
+        PoolInfo memory poolInfo = poolInfoOf[_poolAddress];
         require(poolInfo.active == 0 && poolInfo.bond == 0 && poolInfo.unbond == 0, "pool not empty");
-        require(IStakePool(_stakePool).getTotalDelegated() == 0, "delegate not empty");
+        require(IStakePool(_poolAddress).getTotalDelegated() == 0, "delegate not empty");
         require(
-            pendingDelegateOf[_stakePool] == 0 &&
-                pendingUndelegateOf[_stakePool] == 0 &&
-                undistributedRewardOf[_stakePool] == 0,
+            pendingDelegateOf[_poolAddress] == 0 &&
+                pendingUndelegateOf[_poolAddress] == 0 &&
+                undistributedRewardOf[_poolAddress] == 0,
             "pending not empty"
         );
 
-        require(bondedPools.remove(_stakePool), "pool not exist");
+        require(bondedPools.remove(_poolAddress), "pool not exist");
     }
 
-    function rmValidator(address _stakePool, address _validator) external onlyAdmin {
-        require(IStakePool(_stakePool).getDelegated(_validator) == 0, "delegate not empty");
+    function rmValidator(address _poolAddress, address _validator) external onlyAdmin {
+        require(IStakePool(_poolAddress).getDelegated(_validator) == 0, "delegate not empty");
 
-        validatorsOf[_stakePool].remove(_validator);
-        delegatedOfValidator[_stakePool][_validator] = 0;
+        validatorsOf[_poolAddress].remove(_validator);
+        delegatedOfValidator[_poolAddress][_validator] = 0;
     }
 
     function redelegate(
-        address _stakePool,
+        address _poolAddress,
         address _srcValidator,
         address _dstValidator,
         uint256 _amount
     ) external onlyAdmin {
-        require(validatorsOf[_stakePool].contains(_srcValidator), "val not exist");
+        require(validatorsOf[_poolAddress].contains(_srcValidator), "val not exist");
 
-        if (!validatorsOf[_stakePool].contains(_dstValidator)) {
-            validatorsOf[_stakePool].add(_dstValidator);
+        if (!validatorsOf[_poolAddress].contains(_dstValidator)) {
+            validatorsOf[_poolAddress].add(_dstValidator);
         }
 
         require(
-            block.timestamp >= IStakePool(_stakePool).getPendingRedelegateTime(_srcValidator, _dstValidator) &&
-                block.timestamp >= IStakePool(_stakePool).getPendingRedelegateTime(_dstValidator, _srcValidator),
+            block.timestamp >= IStakePool(_poolAddress).getPendingRedelegateTime(_srcValidator, _dstValidator) &&
+                block.timestamp >= IStakePool(_poolAddress).getPendingRedelegateTime(_dstValidator, _srcValidator),
             "pending redelegation exist"
         );
 
-        _checkAndRepairDelegated(_stakePool);
+        _checkAndRepairDelegated(_poolAddress);
 
-        delegatedOfValidator[_stakePool][_srcValidator] = delegatedOfValidator[_stakePool][_srcValidator].sub(_amount);
-        delegatedOfValidator[_stakePool][_dstValidator] = delegatedOfValidator[_stakePool][_dstValidator].add(_amount);
+        delegatedOfValidator[_poolAddress][_srcValidator] = delegatedOfValidator[_poolAddress][_srcValidator].sub(
+            _amount
+        );
+        delegatedOfValidator[_poolAddress][_dstValidator] = delegatedOfValidator[_poolAddress][_dstValidator].add(
+            _amount
+        );
 
-        IStakePool(_stakePool).redelegate(_srcValidator, _dstValidator, _amount);
+        IStakePool(_poolAddress).redelegate(_srcValidator, _dstValidator, _amount);
     }
 
     function withdrawProtocolFee(address _to) external onlyAdmin {
@@ -282,35 +286,35 @@ contract StakeManager is Multisig, IRateProvider {
         withdrawWithPool(bondedPools.at(0));
     }
 
-    function stakeWithPool(address _stakePoolAddress, uint256 _stakeAmount) public payable {
+    function stakeWithPool(address _poolAddress, uint256 _stakeAmount) public payable {
         require(msg.value >= _stakeAmount.add(getStakeRelayerFee()), "fee not enough");
         require(_stakeAmount >= minStakeAmount, "amount not enough");
-        require(bondedPools.contains(_stakePoolAddress), "pool not exist");
+        require(bondedPools.contains(_poolAddress), "pool not exist");
         (bool success, ) = msg.sender.call{gas: transferGas}("");
         require(success, "staker not payable");
 
         uint256 rTokenAmount = _stakeAmount.mul(1e18).div(rate);
 
         // update pool
-        PoolInfo storage poolInfo = poolInfoOf[_stakePoolAddress];
+        PoolInfo storage poolInfo = poolInfoOf[_poolAddress];
         poolInfo.bond = poolInfo.bond.add(_stakeAmount);
         poolInfo.active = poolInfo.active.add(_stakeAmount);
 
         // transfer token
-        (success, ) = _stakePoolAddress.call{value: _stakeAmount}("");
+        (success, ) = _poolAddress.call{value: _stakeAmount}("");
         require(success, "transfer failed");
 
         // mint rtoken
         totalRTokenSupply = totalRTokenSupply.add(rTokenAmount);
         IERC20MintBurn(rTokenAddress).mint(msg.sender, rTokenAmount);
 
-        emit Stake(msg.sender, _stakePoolAddress, _stakeAmount, rTokenAmount);
+        emit Stake(msg.sender, _poolAddress, _stakeAmount, rTokenAmount);
     }
 
-    function unstakeWithPool(address _stakePoolAddress, uint256 _rTokenAmount) public payable {
+    function unstakeWithPool(address _poolAddress, uint256 _rTokenAmount) public payable {
         require(_rTokenAmount > 0, "rtoken amount zero");
         require(msg.value >= getUnstakeRelayerFee(), "fee not enough");
-        require(bondedPools.contains(_stakePoolAddress), "pool not exist");
+        require(bondedPools.contains(_poolAddress), "pool not exist");
         (bool success, ) = msg.sender.call{gas: transferGas}("");
         require(success, "unstaker not payable");
         require(unstakeOfUser[msg.sender].length() <= 100, "unstake number limit"); //todo test max limit number
@@ -320,7 +324,7 @@ contract StakeManager is Multisig, IRateProvider {
         uint256 tokenAmount = leftRTokenAmount.mul(rate).div(1e18);
 
         // update pool
-        PoolInfo storage poolInfo = poolInfoOf[_stakePoolAddress];
+        PoolInfo storage poolInfo = poolInfoOf[_poolAddress];
         poolInfo.unbond = poolInfo.unbond.add(tokenAmount);
         poolInfo.active = poolInfo.active.sub(tokenAmount);
 
@@ -335,13 +339,13 @@ contract StakeManager is Multisig, IRateProvider {
         // unstake info
         unstakeAtIndex[nextUnstakeIndex] = UnstakeInfo({
             era: currentEra(),
-            pool: _stakePoolAddress,
+            pool: _poolAddress,
             receiver: msg.sender,
             amount: tokenAmount
         });
         unstakeOfUser[msg.sender].add(nextUnstakeIndex);
 
-        emit Unstake(msg.sender, _stakePoolAddress, tokenAmount, _rTokenAmount, leftRTokenAmount, nextUnstakeIndex);
+        emit Unstake(msg.sender, _poolAddress, tokenAmount, _rTokenAmount, leftRTokenAmount, nextUnstakeIndex);
 
         nextUnstakeIndex = nextUnstakeIndex.add(1);
     }
