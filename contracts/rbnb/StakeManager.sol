@@ -387,13 +387,13 @@ contract StakeManager is Multisig, IRateProvider {
 
     function settle(address _poolAddress) public {
         require(bondedPools.contains(_poolAddress), "pool not exist");
-
         _checkAndRepairDelegated(_poolAddress);
 
         // claim undelegated
         IStakePool(_poolAddress).checkAndClaimUndelegated();
 
         PoolInfo memory poolInfo = poolInfoOf[_poolAddress];
+
         // cal pending value
         uint256 pendingDelegate = pendingDelegateOf[_poolAddress].add(poolInfo.bond);
         uint256 pendingUndelegate = pendingUndelegateOf[_poolAddress].add(poolInfo.unbond);
@@ -407,71 +407,7 @@ contract StakeManager is Multisig, IRateProvider {
         poolInfo.unbond = 0;
         poolInfoOf[_poolAddress] = poolInfo;
 
-        // delegate and cal pending value
-        uint256 minDelegation = IStakePool(_poolAddress).getMinDelegation();
-        if (pendingDelegate >= minDelegation) {
-            address val = validatorsOf[_poolAddress].at(0);
-
-            delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].add(pendingDelegate);
-            IStakePool(_poolAddress).delegate(val, pendingDelegate);
-
-            pendingDelegate = 0;
-        }
-
-        // undelegate and cal pending value
-        if (pendingUndelegate > 0) {
-            uint256 needUndelegate = pendingUndelegate;
-            uint256 realUndelegate = 0;
-
-            for (uint256 i = 0; i < validatorsOf[_poolAddress].length(); ++i) {
-                if (needUndelegate == 0) {
-                    break;
-                }
-                address val = validatorsOf[_poolAddress].at(i);
-
-                if (block.timestamp < IStakePool(_poolAddress).getPendingUndelegateTime(val)) {
-                    continue;
-                }
-
-                uint256 govDelegated = IStakePool(_poolAddress).getDelegated(val);
-                if (needUndelegate < govDelegated) {
-                    uint256 willUndelegate = needUndelegate;
-                    if (willUndelegate < minDelegation) {
-                        willUndelegate = minDelegation;
-                        if (willUndelegate > govDelegated) {
-                            willUndelegate = govDelegated;
-                        }
-                    }
-
-                    delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].sub(
-                        willUndelegate
-                    );
-                    IStakePool(_poolAddress).undelegate(val, willUndelegate);
-
-                    needUndelegate = 0;
-                    realUndelegate = realUndelegate.add(willUndelegate);
-                } else {
-                    delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].sub(govDelegated);
-                    IStakePool(_poolAddress).undelegate(val, govDelegated);
-
-                    needUndelegate = needUndelegate.sub(govDelegated);
-                    realUndelegate = realUndelegate.add(govDelegated);
-                }
-            }
-
-            if (realUndelegate > pendingUndelegate) {
-                pendingDelegate = pendingDelegate.add(realUndelegate.sub(pendingUndelegate));
-                pendingUndelegate = 0;
-            } else {
-                pendingUndelegate = pendingUndelegate.sub(realUndelegate);
-            }
-        }
-
-        // update pending value
-        pendingDelegateOf[_poolAddress] = pendingDelegate;
-        pendingUndelegateOf[_poolAddress] = pendingUndelegate;
-
-        emit Settle(currentEra(), _poolAddress);
+        _settle(_poolAddress, pendingDelegate, pendingUndelegate);
     }
 
     // ----- helper
@@ -542,6 +478,9 @@ contract StakeManager is Multisig, IRateProvider {
                     _latestRewardTimestampList[i] < block.timestamp,
                 "timestamp not match"
             );
+            PoolInfo memory poolInfo = poolInfoOf[poolAddress];
+            require(poolInfo.era != latestEra, "duplicate pool");
+            require(bondedPools.contains(poolAddress), "pool not exist");
 
             _checkAndRepairDelegated(poolAddress);
 
@@ -554,10 +493,6 @@ contract StakeManager is Multisig, IRateProvider {
                 // total new reward
                 totalNewReward = totalNewReward.add(_newRewardList[i]);
             }
-
-            PoolInfo memory poolInfo = poolInfoOf[poolAddress];
-            require(poolInfo.era != latestEra, "duplicate pool");
-            require(bondedPools.contains(poolAddress), "pool not exist");
 
             // claim distributed reward
             uint256 claimedReward = IStakePool(poolAddress).checkAndClaimReward();
@@ -574,15 +509,15 @@ contract StakeManager is Multisig, IRateProvider {
             uint256 pendingUndelegate = pendingUndelegateOf[poolAddress].add(poolInfo.unbond);
 
             uint256 deduction = pendingDelegate > pendingUndelegate ? pendingUndelegate : pendingDelegate;
-            pendingDelegateOf[poolAddress] = pendingDelegate.sub(deduction);
-            pendingUndelegateOf[poolAddress] = pendingUndelegate.sub(deduction);
+            pendingDelegate = pendingDelegate.sub(deduction);
+            pendingUndelegate = pendingUndelegate.sub(deduction);
 
             // cal total active
             uint256 poolNewActive = IStakePool(poolAddress)
                 .getTotalDelegated()
-                .add(pendingDelegateOf[poolAddress])
+                .add(pendingDelegate)
                 .add(undistributedRewardOf[poolAddress])
-                .sub(pendingUndelegateOf[poolAddress]);
+                .sub(pendingUndelegate);
 
             totalNewActive = totalNewActive.add(poolNewActive);
 
@@ -594,7 +529,8 @@ contract StakeManager is Multisig, IRateProvider {
 
             poolInfoOf[poolAddress] = poolInfo;
 
-            settle(poolAddress);
+            // settle
+            _settle(poolAddress, pendingDelegate, pendingUndelegate);
         }
 
         // cal protocol fee
@@ -616,5 +552,74 @@ contract StakeManager is Multisig, IRateProvider {
         eraRate[_era] = newRate;
 
         emit ExecuteNewEra(_era, newRate);
+    }
+
+    // maybe call delegate/undelegate to stakepool and update pending value
+    function _settle(address _poolAddress, uint256 pendingDelegate, uint256 pendingUndelegate) private {
+        // delegate and cal pending value
+        uint256 minDelegation = IStakePool(_poolAddress).getMinDelegation();
+        if (pendingDelegate >= minDelegation) {
+            address val = validatorsOf[_poolAddress].at(0);
+
+            delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].add(pendingDelegate);
+            IStakePool(_poolAddress).delegate(val, pendingDelegate);
+
+            pendingDelegate = 0;
+        }
+
+        // undelegate and cal pending value
+        if (pendingUndelegate > 0) {
+            uint256 needUndelegate = pendingUndelegate;
+            uint256 realUndelegate = 0;
+
+            for (uint256 i = 0; i < validatorsOf[_poolAddress].length(); ++i) {
+                if (needUndelegate == 0) {
+                    break;
+                }
+                address val = validatorsOf[_poolAddress].at(i);
+
+                if (block.timestamp < IStakePool(_poolAddress).getPendingUndelegateTime(val)) {
+                    continue;
+                }
+
+                uint256 govDelegated = IStakePool(_poolAddress).getDelegated(val);
+                if (needUndelegate < govDelegated) {
+                    uint256 willUndelegate = needUndelegate;
+                    if (willUndelegate < minDelegation) {
+                        willUndelegate = minDelegation;
+                        if (willUndelegate > govDelegated) {
+                            willUndelegate = govDelegated;
+                        }
+                    }
+
+                    delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].sub(
+                        willUndelegate
+                    );
+                    IStakePool(_poolAddress).undelegate(val, willUndelegate);
+
+                    needUndelegate = 0;
+                    realUndelegate = realUndelegate.add(willUndelegate);
+                } else {
+                    delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].sub(govDelegated);
+                    IStakePool(_poolAddress).undelegate(val, govDelegated);
+
+                    needUndelegate = needUndelegate.sub(govDelegated);
+                    realUndelegate = realUndelegate.add(govDelegated);
+                }
+            }
+
+            if (realUndelegate > pendingUndelegate) {
+                pendingDelegate = pendingDelegate.add(realUndelegate.sub(pendingUndelegate));
+                pendingUndelegate = 0;
+            } else {
+                pendingUndelegate = pendingUndelegate.sub(realUndelegate);
+            }
+        }
+
+        // update pending value
+        pendingDelegateOf[_poolAddress] = pendingDelegate;
+        pendingUndelegateOf[_poolAddress] = pendingUndelegate;
+
+        emit Settle(currentEra(), _poolAddress);
     }
 }
