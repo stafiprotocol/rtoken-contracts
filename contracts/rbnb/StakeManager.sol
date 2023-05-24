@@ -60,7 +60,9 @@ contract StakeManager is Multisig, IRateProvider {
     event ExecuteNewEra(uint256 indexed era, uint256 rate);
     event Settle(uint256 indexed era, address indexed pool);
     event RepairDelegated(address pool, address validator, uint256 govDelegated, uint256 localDelegated);
-    event SetUnbondingDuration(uint256 bondingDuration);
+    event SetUnbondingDuration(uint256 unbondingDuration);
+    event Delegate(address pool, address validator, uint256 amount);
+    event Undelegate(address pool, address validator, uint256 amount);
 
     // init
     function init(
@@ -560,6 +562,8 @@ contract StakeManager is Multisig, IRateProvider {
                 delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].add(pendingDelegate);
                 IStakePool(_poolAddress).delegate(val, pendingDelegate);
 
+                emit Delegate(_poolAddress, val, pendingDelegate);
+
                 pendingDelegate = 0;
                 break;
             }
@@ -569,6 +573,7 @@ contract StakeManager is Multisig, IRateProvider {
         if (pendingUndelegate > 0) {
             uint256 needUndelegate = pendingUndelegate;
             uint256 realUndelegate = 0;
+            uint256 relayerFee = IStakePool(_poolAddress).getRelayerFee();
 
             for (uint256 i = 0; i < validatorsOf[_poolAddress].length(); ++i) {
                 if (needUndelegate == 0) {
@@ -590,16 +595,24 @@ contract StakeManager is Multisig, IRateProvider {
                         }
                     }
 
+                    if (willUndelegate < govDelegated && govDelegated.sub(willUndelegate) < relayerFee) {
+                        willUndelegate = govDelegated;
+                    }
+
                     delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].sub(
                         willUndelegate
                     );
                     IStakePool(_poolAddress).undelegate(val, willUndelegate);
+
+                    emit Undelegate(_poolAddress, val, willUndelegate);
 
                     needUndelegate = 0;
                     realUndelegate = realUndelegate.add(willUndelegate);
                 } else {
                     delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].sub(govDelegated);
                     IStakePool(_poolAddress).undelegate(val, govDelegated);
+
+                    emit Undelegate(_poolAddress, val, govDelegated);
 
                     needUndelegate = needUndelegate.sub(govDelegated);
                     realUndelegate = realUndelegate.add(govDelegated);

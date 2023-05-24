@@ -542,7 +542,7 @@ contract Staking is IStaking, System, IParamSubscriber {
   //   }
   // }
 
-  function handleUndelegateAckPackage(address delegator,address validator, uint256 amount, uint8 status, uint8 errCode) internal {
+  function handleUndelegateAckPackage(address delegator,address validator, uint256 amount, uint8 status, uint8 errCode) public {
     undelegateInFly[delegator] -= 1;
     if (status == CODE_SUCCESS) {
       require(errCode == 0, "wrong status");
