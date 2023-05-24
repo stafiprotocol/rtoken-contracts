@@ -11,10 +11,6 @@ interface IStakePool {
 
     function undelegate(address validator, uint256 amount) external;
 
-    function delegateVals(address[] calldata validatorList, uint256[] calldata amountList) external;
-
-    function undelegateVals(address[] calldata validatorList, uint256[] calldata amountList) external;
-
     function redelegate(address validatorSrc, address validatorDst, uint256 amount) external;
 
     function withdrawForStaker(address staker, uint256 amount) external;

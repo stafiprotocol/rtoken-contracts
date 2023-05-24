@@ -78,7 +78,7 @@ contract StakeManager is Multisig, IRateProvider {
         rateChangeLimit = 1e15;
         unstakeFeeCommission = 2e15;
         protocolFeeCommission = 1e17;
-        transferGas = 2300;
+        transferGas = 5000;
         eraSeconds = 86400;
         eraOffset = 18033;
         delegatedDiffLimit = 1e11;

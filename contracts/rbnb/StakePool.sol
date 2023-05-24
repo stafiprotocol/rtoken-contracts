@@ -7,6 +7,8 @@ import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";
 contract StakePool is IStakePool {
     using SafeMath for uint256;
 
+    uint256 public constant TEN_DECIMALS = 1e10;
+
     bytes32 private constant stakingAddressSlot = bytes32(uint256(keccak256("StakePool.proxy.stakingAddressSlot")) - 1);
     bytes32 private constant stakeManagerAddressSlot =
         bytes32(uint256(keccak256("StakePool.proxy.stakeManagerAddressSlot")) - 1);
@@ -72,36 +74,19 @@ contract StakePool is IStakePool {
     }
 
     function delegate(address validator, uint256 amount) external override onlyStakeManager {
+        amount = amount.div(TEN_DECIMALS).mul(TEN_DECIMALS);
         uint256 relayerFee = IStaking(stakingAddress()).getRelayerFee();
         IStaking(stakingAddress()).delegate{value: amount.add(relayerFee)}(validator, amount);
     }
 
     function undelegate(address validator, uint256 amount) external override onlyStakeManager {
+        amount = amount.div(TEN_DECIMALS).mul(TEN_DECIMALS);
         uint256 relayerFee = IStaking(stakingAddress()).getRelayerFee();
         IStaking(stakingAddress()).undelegate{value: relayerFee}(validator, amount);
     }
 
-    function delegateVals(
-        address[] calldata validatorList,
-        uint256[] calldata amountList
-    ) external override onlyStakeManager {
-        uint256 relayerFee = IStaking(stakingAddress()).getRelayerFee();
-        for (uint256 i = 0; i < validatorList.length; ++i) {
-            IStaking(stakingAddress()).delegate{value: amountList[i].add(relayerFee)}(validatorList[i], amountList[i]);
-        }
-    }
-
-    function undelegateVals(
-        address[] calldata validatorList,
-        uint256[] calldata amountList
-    ) external override onlyStakeManager {
-        uint256 relayerFee = IStaking(stakingAddress()).getRelayerFee();
-        for (uint256 i = 0; i < validatorList.length; ++i) {
-            IStaking(stakingAddress()).undelegate{value: relayerFee}(validatorList[i], amountList[i]);
-        }
-    }
-
     function redelegate(address validatorSrc, address validatorDst, uint256 amount) external override onlyStakeManager {
+        amount = amount.div(TEN_DECIMALS).mul(TEN_DECIMALS);
         uint256 relayerFee = IStaking(stakingAddress()).getRelayerFee();
         IStaking(stakingAddress()).redelegate{value: relayerFee}(validatorSrc, validatorDst, amount);
     }

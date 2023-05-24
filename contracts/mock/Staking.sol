@@ -39,7 +39,7 @@ contract Staking is IStaking, System, IParamSubscriber {
   uint256 public constant INIT_RELAYER_FEE = 16 * 1e15;
   uint256 public constant INIT_BSC_RELAYER_FEE = 1 * 1e16;
   uint256 public constant INIT_MIN_DELEGATION = 1 * 1e16;
-  uint256 public constant INIT_TRANSFER_GAS = 2300;
+  uint256 public constant INIT_TRANSFER_GAS = 5000;
 
   uint256 public relayerFee;
   uint256 public bSCRelayerFee;
