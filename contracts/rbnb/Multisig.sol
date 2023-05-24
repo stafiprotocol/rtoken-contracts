@@ -86,4 +86,17 @@ contract Multisig {
         Proposal memory proposal = proposals[_proposalId];
         return _hasVoted(proposal, _voter);
     }
+
+    function _checkProposal(bytes32 _proposalId) internal view returns (Proposal memory proposal) {
+        proposal = proposals[_proposalId];
+
+        require(uint256(proposal._status) <= 1, "proposal already executed");
+        require(!_hasVoted(proposal, msg.sender), "already voted");
+
+        if (proposal._status == ProposalStatus.Inactive) {
+            proposal = Proposal({_status: ProposalStatus.Active, _yesVotes: 0, _yesVotesTotal: 0});
+        }
+        proposal._yesVotes = (proposal._yesVotes | voterBit(msg.sender)).toUint16();
+        proposal._yesVotesTotal++;
+    }
 }

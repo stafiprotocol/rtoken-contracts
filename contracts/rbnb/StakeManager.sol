@@ -9,7 +9,6 @@ import "./IStakePool.sol";
 import "./IERC20MintBurn.sol";
 
 contract StakeManager is Multisig, IRateProvider {
-    using SafeCast for *;
     using SafeERC20 for IERC20;
     using SafeMath for uint256;
     using EnumerableSet for EnumerableSet.AddressSet;
@@ -39,6 +38,7 @@ contract StakeManager is Multisig, IRateProvider {
     mapping(address => uint256) public pendingDelegateOf;
     mapping(address => uint256) public pendingUndelegateOf;
     mapping(address => mapping(address => uint256)) public delegatedOfValidator; // delegator => validator => amount
+    mapping(address => bool) waitingRemovedValidator;
     mapping(uint256 => uint256) public eraRate;
 
     // unstake info
@@ -212,6 +212,7 @@ contract StakeManager is Multisig, IRateProvider {
 
         validatorsOf[_poolAddress].remove(_validator);
         delegatedOfValidator[_poolAddress][_validator] = 0;
+        delete (waitingRemovedValidator[_validator]);
     }
 
     function redelegate(
@@ -221,6 +222,7 @@ contract StakeManager is Multisig, IRateProvider {
         uint256 _amount
     ) external onlyAdmin {
         require(validatorsOf[_poolAddress].contains(_srcValidator), "val not exist");
+        require(_srcValidator != _dstValidator, "val duplicate");
 
         if (!validatorsOf[_poolAddress].contains(_dstValidator)) {
             validatorsOf[_poolAddress].add(_dstValidator);
@@ -242,6 +244,10 @@ contract StakeManager is Multisig, IRateProvider {
         );
 
         IStakePool(_poolAddress).redelegate(_srcValidator, _dstValidator, _amount);
+
+        if (delegatedOfValidator[_poolAddress][_srcValidator] == 0) {
+            waitingRemovedValidator[_srcValidator] = true;
+        }
     }
 
     function withdrawProtocolFee(address _to) external onlyAdmin {
@@ -251,30 +257,6 @@ contract StakeManager is Multisig, IRateProvider {
     function withdrawRelayerFee(address _to) external onlyAdmin {
         (bool success, ) = _to.call{value: address(this).balance}("");
         require(success, "failed to withdraw");
-    }
-
-    // ----- vote
-
-    function newEra(
-        uint256 _era,
-        address[] calldata _poolAddressList,
-        uint256[] calldata _newRewardList,
-        uint256[] calldata _latestRewardTimestampList
-    ) external onlyVoter {
-        bytes32 proposalId = keccak256(
-            abi.encodePacked("newEra", _era, _poolAddressList, _newRewardList, _latestRewardTimestampList)
-        );
-        Proposal memory proposal = _checkProposal(proposalId);
-
-        // Finalize if Threshold has been reached
-        if (proposal._yesVotesTotal >= threshold) {
-            _executeNewEra(_era, _poolAddressList, _newRewardList, _latestRewardTimestampList);
-
-            proposal._status = ProposalStatus.Executed;
-            emit ProposalExecuted(proposalId);
-        }
-
-        proposals[proposalId] = proposal;
     }
 
     // ----- staker operation
@@ -410,20 +392,31 @@ contract StakeManager is Multisig, IRateProvider {
         _settle(_poolAddress, pendingDelegate, pendingUndelegate);
     }
 
-    // ----- helper
+    // ----- vote
 
-    function _checkProposal(bytes32 _proposalId) private view returns (Proposal memory proposal) {
-        proposal = proposals[_proposalId];
+    function newEra(
+        uint256 _era,
+        address[] calldata _poolAddressList,
+        uint256[] calldata _newRewardList,
+        uint256[] calldata _latestRewardTimestampList
+    ) external onlyVoter {
+        bytes32 proposalId = keccak256(
+            abi.encodePacked("newEra", _era, _poolAddressList, _newRewardList, _latestRewardTimestampList)
+        );
+        Proposal memory proposal = _checkProposal(proposalId);
 
-        require(uint256(proposal._status) <= 1, "proposal already executed");
-        require(!_hasVoted(proposal, msg.sender), "already voted");
+        // Finalize if Threshold has been reached
+        if (proposal._yesVotesTotal >= threshold) {
+            _executeNewEra(_era, _poolAddressList, _newRewardList, _latestRewardTimestampList);
 
-        if (proposal._status == ProposalStatus.Inactive) {
-            proposal = Proposal({_status: ProposalStatus.Active, _yesVotes: 0, _yesVotesTotal: 0});
+            proposal._status = ProposalStatus.Executed;
+            emit ProposalExecuted(proposalId);
         }
-        proposal._yesVotes = (proposal._yesVotes | voterBit(msg.sender)).toUint16();
-        proposal._yesVotesTotal++;
+
+        proposals[proposalId] = proposal;
     }
+
+    // ----- helper
 
     function _checkAndRepairDelegated(address _poolAddress) private {
         uint256[3] memory requestInFly = IStakePool(_poolAddress).getRequestInFly();
@@ -559,12 +552,17 @@ contract StakeManager is Multisig, IRateProvider {
         // delegate and cal pending value
         uint256 minDelegation = IStakePool(_poolAddress).getMinDelegation();
         if (pendingDelegate >= minDelegation) {
-            address val = validatorsOf[_poolAddress].at(0);
+            for (uint256 i = 0; i < validatorsOf[_poolAddress].length(); ++i) {
+                address val = validatorsOf[_poolAddress].at(i);
+                if (waitingRemovedValidator[val]) {
+                    continue;
+                }
+                delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].add(pendingDelegate);
+                IStakePool(_poolAddress).delegate(val, pendingDelegate);
 
-            delegatedOfValidator[_poolAddress][val] = delegatedOfValidator[_poolAddress][val].add(pendingDelegate);
-            IStakePool(_poolAddress).delegate(val, pendingDelegate);
-
-            pendingDelegate = 0;
+                pendingDelegate = 0;
+                break;
+            }
         }
 
         // undelegate and cal pending value
