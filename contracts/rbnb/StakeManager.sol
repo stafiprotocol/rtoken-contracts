@@ -76,7 +76,7 @@ contract StakeManager is Multisig, IRateProvider {
         rTokenAddress = _rTokenAddress;
         unbondingDuration = _unbondingDuration;
 
-        minStakeAmount = 1e18;
+        minStakeAmount = 1e12;
         rateChangeLimit = 1e15;
         unstakeFeeCommission = 2e15;
         protocolFeeCommission = 1e17;
