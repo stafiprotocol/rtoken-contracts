@@ -14,6 +14,8 @@ contract StakeManager is Multisig, IRateProvider {
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.UintSet;
 
+    uint256 public constant CROSS_DISTRIBUTE_RELAY_FEE = 6 * 1e15;
+
     address public rTokenAddress;
     uint256 public minStakeAmount;
     uint256 public unstakeFeeCommission; // decimals 18
@@ -340,7 +342,7 @@ contract StakeManager is Multisig, IRateProvider {
     }
 
     function withdrawWithPool(address _poolAddress) public payable {
-        require(msg.value >= 6e15, "fee not enough");
+        require(msg.value >= CROSS_DISTRIBUTE_RELAY_FEE, "fee not enough");
 
         uint256 totalWithdrawAmount;
         uint256 length = unstakeOfUser[msg.sender].length();
@@ -493,7 +495,7 @@ contract StakeManager is Multisig, IRateProvider {
             if (currentEra() == _era) {
                 uint256 claimedReward = IStakePool(poolAddress).checkAndClaimReward();
                 if (claimedReward > 0) {
-                    claimedReward = claimedReward.add(6e15);
+                    claimedReward = claimedReward.add(CROSS_DISTRIBUTE_RELAY_FEE);
                     if (undistributedRewardOf[poolAddress] > claimedReward) {
                         undistributedRewardOf[poolAddress] = undistributedRewardOf[poolAddress].sub(claimedReward);
                     } else {
