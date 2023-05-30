@@ -271,7 +271,7 @@ contract StakeManager is Multisig, IRateProvider {
         unstakeWithPool(bondedPools.at(0), _rTokenAmount);
     }
 
-    function withdraw() external {
+    function withdraw() external payable {
         withdrawWithPool(bondedPools.at(0));
     }
 
@@ -339,7 +339,9 @@ contract StakeManager is Multisig, IRateProvider {
         nextUnstakeIndex = nextUnstakeIndex.add(1);
     }
 
-    function withdrawWithPool(address _poolAddress) public {
+    function withdrawWithPool(address _poolAddress) public payable {
+        require(msg.value >= 6e15, "fee not enough");
+
         uint256 totalWithdrawAmount;
         uint256 length = unstakeOfUser[msg.sender].length();
         uint256[] memory unstakeIndexList = new uint256[](length);
@@ -491,7 +493,12 @@ contract StakeManager is Multisig, IRateProvider {
             if (currentEra() == _era) {
                 uint256 claimedReward = IStakePool(poolAddress).checkAndClaimReward();
                 if (claimedReward > 0) {
-                    undistributedRewardOf[poolAddress] = undistributedRewardOf[poolAddress].sub(claimedReward);
+                    claimedReward = claimedReward.add(6e15);
+                    if (undistributedRewardOf[poolAddress] > claimedReward) {
+                        undistributedRewardOf[poolAddress] = undistributedRewardOf[poolAddress].sub(claimedReward);
+                    } else {
+                        undistributedRewardOf[poolAddress] = 0;
+                    }
                     pendingDelegateOf[poolAddress] = pendingDelegateOf[poolAddress].add(claimedReward);
                 }
             }
