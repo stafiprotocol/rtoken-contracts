@@ -42,6 +42,9 @@ module.exports = {
     bscmainnet: {
       url: `https://rpc.ankr.com/bsc`,
     },
+    bsctestnet: {
+      url: `https://rpc.ankr.com/bsc_testnet_chapel`,
+    },
     polygonMainnet: {
       url: `https://rpc.ankr.com/polygon`,
     }

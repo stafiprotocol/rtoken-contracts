@@ -397,11 +397,11 @@ contract StakeManager is Multisig, IRateProvider {
     // ----- vote
 
     function newEra(
-        uint256 _era,
         address[] calldata _poolAddressList,
         uint256[] calldata _newRewardList,
         uint256[] calldata _latestRewardTimestampList
     ) external onlyVoter {
+        uint256 _era = latestEra.add(1);
         bytes32 proposalId = keccak256(
             abi.encodePacked("newEra", _era, _poolAddressList, _newRewardList, _latestRewardTimestampList)
         );
@@ -453,7 +453,6 @@ contract StakeManager is Multisig, IRateProvider {
         uint256[] calldata _latestRewardTimestampList
     ) private {
         require(currentEra() >= _era, "calEra not match");
-        require(_era == latestEra.add(1), "latestEra not match");
         require(
             _poolAddressList.length == bondedPools.length() &&
                 _poolAddressList.length == _newRewardList.length &&
@@ -462,7 +461,6 @@ contract StakeManager is Multisig, IRateProvider {
         );
         // update era
         latestEra = _era;
-
         // update pool info
         uint256 totalNewReward;
         uint256 totalNewActive;
@@ -490,10 +488,12 @@ contract StakeManager is Multisig, IRateProvider {
             }
 
             // claim distributed reward
-            uint256 claimedReward = IStakePool(poolAddress).checkAndClaimReward();
-            if (claimedReward > 0) {
-                undistributedRewardOf[poolAddress] = undistributedRewardOf[poolAddress].sub(claimedReward);
-                pendingDelegateOf[poolAddress] = pendingDelegateOf[poolAddress].add(claimedReward);
+            if (currentEra() == _era) {
+                uint256 claimedReward = IStakePool(poolAddress).checkAndClaimReward();
+                if (claimedReward > 0) {
+                    undistributedRewardOf[poolAddress] = undistributedRewardOf[poolAddress].sub(claimedReward);
+                    pendingDelegateOf[poolAddress] = pendingDelegateOf[poolAddress].add(claimedReward);
+                }
             }
 
             // claim undelegated
