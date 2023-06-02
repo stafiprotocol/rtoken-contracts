@@ -14,4 +14,6 @@ interface IValidatorShare {
     function restake() external returns (uint256, uint256);
 
     function getTotalStake(address user) external view returns (uint256, uint256);
+
+    function getLiquidRewards(address user) external view returns (uint256);
 }

@@ -91,7 +91,7 @@ contract StakeManager is IRateProvider {
         return pools;
     }
 
-    function getValidatorsOf(address _poolAddress) external view returns (address[] memory validators) {
+    function getValidatorsOf(address _poolAddress) public view returns (address[] memory validators) {
         validators = new address[](validatorsOf[_poolAddress].length());
         for (uint256 i = 0; i < validatorsOf[_poolAddress].length(); ++i) {
             validators[i] = validatorsOf[_poolAddress].at(i);
@@ -165,12 +165,17 @@ contract StakeManager is IRateProvider {
     function rmStakePool(address _poolAddress) external onlyAdmin {
         PoolInfo memory poolInfo = poolInfoOf[_poolAddress];
         require(poolInfo.active == 0 && poolInfo.bond == 0 && poolInfo.unbond == 0, "pool not empty");
-        require(IStakePool(_poolAddress).getTotalStake() == 0, "delegate not empty");
+
+        address[] memory validators = getValidatorsOf(_poolAddress);
+        for (uint256 j = 0; j < validators.length; ++j) {
+            require(IStakePool(_poolAddress).getTotalStakeOnValidator(validators[j]) == 0, "delegate not empty");
+        }
+
         require(bondedPools.remove(_poolAddress), "pool not exist");
     }
 
     function rmValidator(address _poolAddress, address _validator) external onlyAdmin {
-        require(IStakePool(_poolAddress).getTotalStake() == 0, "delegate not empty");
+        require(IStakePool(_poolAddress).getTotalStakeOnValidator(_validator) == 0, "delegate not empty");
 
         validatorsOf[_poolAddress].remove(_validator);
     }
@@ -272,7 +277,7 @@ contract StakeManager is IRateProvider {
         }
 
         if (totalWithdrawAmount > 0) {
-            IStakePool(_poolAddress).withdrawForStaker(msg.sender, totalWithdrawAmount);
+            IStakePool(_poolAddress).withdrawForStaker(erc20TokenAddress, msg.sender, totalWithdrawAmount);
         }
 
         emit Withdraw(msg.sender, _poolAddress, totalWithdrawAmount, unstakeIndexList);
@@ -281,7 +286,6 @@ contract StakeManager is IRateProvider {
     // ----- permissionless
 
     function newEra() external {
-        address[] memory poolList = getBondedPools();
         uint256 _era = latestEra.add(1);
         require(currentEra() >= _era, "calEra not match");
         // update era
@@ -289,19 +293,44 @@ contract StakeManager is IRateProvider {
         // update pool info
         uint256 totalNewReward;
         uint256 totalNewActive;
+        address[] memory poolList = getBondedPools();
         for (uint256 i = 0; i < poolList.length; ++i) {
             address poolAddress = poolList[i];
+
+            address[] memory validators = getValidatorsOf(poolAddress);
+
+            // newReward
+            uint256 poolNewReward = IStakePool(poolAddress).checkAndWithdrawRewards(validators);
+
+            // bond or unbond
             PoolInfo memory poolInfo = poolInfoOf[poolAddress];
-            require(poolInfo.era != latestEra, "duplicate pool");
-            require(bondedPools.contains(poolAddress), "pool not exist");
+            if (poolInfo.bond.add(poolNewReward) > poolInfo.unbond) {
+                IStakePool(poolAddress).buyVoucher(
+                    validators[0],
+                    poolInfo.bond.add(poolNewReward).sub(poolInfo.unbond)
+                );
+            } else if (poolInfo.bond.add(poolNewReward) < poolInfo.unbond) {
+                uint256 needUndelegate = poolInfo.unbond.sub(poolInfo.bond.add(poolNewReward));
 
-            // claim undelegated
+                for (uint256 j = 0; j < validators.length; ++j) {
+                    if (needUndelegate == 0) {
+                        break;
+                    }
+                    uint256 totalStaked = IStakePool(poolAddress).getTotalStakeOnValidator(validators[j]);
 
-            // update pending value
+                    if (needUndelegate < totalStaked) {
+                        IStakePool(poolAddress).sellVoucher_new(validators[j], needUndelegate);
+
+                        needUndelegate = 0;
+                    } else {
+                        IStakePool(poolAddress).sellVoucher_new(validators[j], totalStaked);
+                        needUndelegate = needUndelegate.sub(totalStaked);
+                    }
+                }
+            }
 
             // cal total active
-            uint256 poolNewActive = IStakePool(poolAddress).getTotalStake();
-
+            uint256 poolNewActive = IStakePool(poolAddress).getTotalStakeOnValidators(validators);
             totalNewActive = totalNewActive.add(poolNewActive);
 
             // update pool state
@@ -333,6 +362,4 @@ contract StakeManager is IRateProvider {
 
         emit ExecuteNewEra(_era, newRate);
     }
-
-    // ----- helper
 }
