@@ -32,7 +32,8 @@ contract StakeManager is IRateProvider {
 
     EnumerableSet.AddressSet bondedPools;
     mapping(address => PoolInfo) public poolInfoOf;
-    mapping(address => EnumerableSet.AddressSet) validatorsOf;
+    mapping(address => EnumerableSet.UintSet) validatorIdsOf;
+    mapping(address => mapping(uint256 => uint256)) maxClaimedNonceOf; // pool => validator Id => max claimed nonce
     mapping(uint256 => uint256) public eraRate;
 
     // unstake info
@@ -91,12 +92,12 @@ contract StakeManager is IRateProvider {
         return pools;
     }
 
-    function getValidatorsOf(address _poolAddress) public view returns (address[] memory validators) {
-        validators = new address[](validatorsOf[_poolAddress].length());
-        for (uint256 i = 0; i < validatorsOf[_poolAddress].length(); ++i) {
-            validators[i] = validatorsOf[_poolAddress].at(i);
+    function getValidatorIdsOf(address _poolAddress) public view returns (uint256[] memory validatorIds) {
+        validatorIds = new uint256[](validatorIdsOf[_poolAddress].length());
+        for (uint256 i = 0; i < validatorIdsOf[_poolAddress].length(); ++i) {
+            validatorIds[i] = validatorIdsOf[_poolAddress].at(i);
         }
-        return validators;
+        return validatorIds;
     }
 
     function getUnstakeIndexListOf(address _staker) external view returns (uint256[] memory unstakeIndexList) {
@@ -115,7 +116,7 @@ contract StakeManager is IRateProvider {
 
     function migrate(
         address _poolAddress,
-        address _validator,
+        uint256 _validatorId,
         uint256 _govDelegated,
         uint256 _bond,
         uint256 _unbond,
@@ -127,7 +128,7 @@ contract StakeManager is IRateProvider {
         require(rate == 0, "already migrate");
         require(bondedPools.add(_poolAddress), "already exist");
 
-        validatorsOf[_poolAddress].add(_validator);
+        validatorIdsOf[_poolAddress].add(_validatorId);
         poolInfoOf[_poolAddress] = PoolInfo({era: _era, bond: _bond, unbond: _unbond, active: _govDelegated});
         rate = _rate;
         totalRTokenSupply = _totalRTokenSupply;
@@ -166,7 +167,7 @@ contract StakeManager is IRateProvider {
         PoolInfo memory poolInfo = poolInfoOf[_poolAddress];
         require(poolInfo.active == 0 && poolInfo.bond == 0 && poolInfo.unbond == 0, "pool not empty");
 
-        address[] memory validators = getValidatorsOf(_poolAddress);
+        uint256[] memory validators = getValidatorIdsOf(_poolAddress);
         for (uint256 j = 0; j < validators.length; ++j) {
             require(IStakePool(_poolAddress).getTotalStakeOnValidator(validators[j]) == 0, "delegate not empty");
         }
@@ -174,10 +175,16 @@ contract StakeManager is IRateProvider {
         require(bondedPools.remove(_poolAddress), "pool not exist");
     }
 
-    function rmValidator(address _poolAddress, address _validator) external onlyAdmin {
-        require(IStakePool(_poolAddress).getTotalStakeOnValidator(_validator) == 0, "delegate not empty");
-
-        validatorsOf[_poolAddress].remove(_validator);
+    function redelegate(
+        address _poolAddress,
+        uint256 _srcValidatorId,
+        uint256 _dstValidatorId,
+        uint256 _amount
+    ) external onlyAdmin {
+        IStakePool(_poolAddress).migrateDelegation(_srcValidatorId, _dstValidatorId, _amount);
+        if (IStakePool(_poolAddress).getTotalStakeOnValidator(_srcValidatorId) == 0) {
+            validatorIdsOf[_poolAddress].remove(_srcValidatorId);
+        }
     }
 
     function withdrawProtocolFee(address _to) external onlyAdmin {
@@ -288,19 +295,32 @@ contract StakeManager is IRateProvider {
     function newEra() external {
         uint256 _era = latestEra.add(1);
         require(currentEra() >= _era, "calEra not match");
+
         // update era
         latestEra = _era;
-        // update pool info
+
         uint256 totalNewReward;
         uint256 totalNewActive;
         address[] memory poolList = getBondedPools();
         for (uint256 i = 0; i < poolList.length; ++i) {
             address poolAddress = poolList[i];
 
-            address[] memory validators = getValidatorsOf(poolAddress);
+            uint256[] memory validators = getValidatorIdsOf(poolAddress);
 
             // newReward
             uint256 poolNewReward = IStakePool(poolAddress).checkAndWithdrawRewards(validators);
+
+            // unstakeClaimTokens
+            for (uint256 j = 0; j < validators.length; ++j) {
+                uint256 oldClaimedNonce = maxClaimedNonceOf[poolAddress][validators[j]];
+                uint256 newClaimedNonce = IStakePool(poolAddress).unstakeClaimTokens_new(
+                    validators[j],
+                    oldClaimedNonce
+                );
+                if (newClaimedNonce > oldClaimedNonce) {
+                    maxClaimedNonceOf[poolAddress][validators[j]] = newClaimedNonce;
+                }
+            }
 
             // bond or unbond
             PoolInfo memory poolInfo = poolInfoOf[poolAddress];

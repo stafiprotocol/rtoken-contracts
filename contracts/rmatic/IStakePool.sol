@@ -3,19 +3,21 @@ pragma solidity 0.7.6;
 // SPDX-License-Identifier: GPL-3.0-only
 
 interface IStakePool {
-    function checkAndWithdrawRewards(address[] calldata validator) external returns (uint256 reward);
+    function checkAndWithdrawRewards(uint256[] calldata validator) external returns (uint256 reward);
 
-    function buyVoucher(address validator, uint256 _amount) external returns (uint256 amountToDeposit);
+    function buyVoucher(uint256 validator, uint256 _amount) external returns (uint256 amountToDeposit);
 
-    function sellVoucher_new(address validator, uint256 claimAmount) external;
+    function sellVoucher_new(uint256 validator, uint256 claimAmount) external;
 
-    function unstakeClaimTokens_new(address validator, uint256 unbondNonce) external;
+    function unstakeClaimTokens_new(uint256 _validator, uint256 _claimedNonce) external returns (uint256);
 
     function withdrawForStaker(address _erc20TokenAddress, address staker, uint256 amount) external;
 
-    function getTotalStakeOnValidator(address validator) external view returns (uint256);
+    function migrateDelegation(uint256 fromValidatorId, uint256 toValidatorId, uint256 amount) external;
 
-    function getTotalStakeOnValidators(address[] calldata validator) external view returns (uint256);
+    function getTotalStakeOnValidator(uint256 validator) external view returns (uint256);
 
-    function getLiquidRewards(address validator) external view returns (uint256);
+    function getTotalStakeOnValidators(uint256[] calldata validator) external view returns (uint256);
+
+    function getLiquidRewards(uint256 validator) external view returns (uint256);
 }
