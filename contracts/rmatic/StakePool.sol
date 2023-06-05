@@ -137,6 +137,10 @@ contract StakePool is IStakePool {
         IGovStakeManager(govStakeManagerAddress()).migrateDelegation(_fromValidatorId, _toValidatorId, _amount);
     }
 
+    function approveForStakeManager(address _erc20TokenAddress, uint256 amount) external override onlyStakeManager {
+        IERC20(_erc20TokenAddress).approve(govStakeManagerAddress(), amount);
+    }
+
     function getTotalStakeOnValidator(uint256 _validator) external view override returns (uint256) {
         address valAddress = IGovStakeManager(govStakeManagerAddress()).getValidatorContract(_validator);
         (uint256 totalStake, ) = IValidatorShare(valAddress).getTotalStake(address(this));

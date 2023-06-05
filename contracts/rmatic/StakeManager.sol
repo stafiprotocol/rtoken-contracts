@@ -60,15 +60,19 @@ contract StakeManager is IRateProvider {
     event Undelegate(address pool, address validator, uint256 amount);
 
     // init
-    function init(address _rTokenAddress, uint256 _unbondingDuration) public {
+    function init(address _rTokenAddress, address _erc20TokenAddress, uint256 _unbondingDuration) public {
+        require(admin == address(0), "already init");
+
+        admin = msg.sender;
         rTokenAddress = _rTokenAddress;
+        erc20TokenAddress = _erc20TokenAddress;
         unbondingDuration = _unbondingDuration;
 
         minStakeAmount = 1e12;
         rateChangeLimit = 1e15;
         unstakeFeeCommission = 2e15;
         protocolFeeCommission = 1e17;
-        eraSeconds = 86400;
+        eraSeconds = 600;
         eraOffset = 18033;
     }
 
@@ -189,6 +193,10 @@ contract StakeManager is IRateProvider {
 
     function withdrawProtocolFee(address _to) external onlyAdmin {
         IERC20(rTokenAddress).safeTransfer(_to, IERC20(rTokenAddress).balanceOf(address(this)));
+    }
+
+    function approve(address _poolAddress, uint256 _amount) external onlyAdmin {
+        IStakePool(_poolAddress).approveForStakeManager(erc20TokenAddress, _amount);
     }
 
     // ----- staker operation
