@@ -72,8 +72,8 @@ contract StakeManager is IRateProvider {
         rateChangeLimit = 1e15;
         unstakeFeeCommission = 2e15;
         protocolFeeCommission = 1e17;
-        eraSeconds = 600;
-        eraOffset = 18033;
+        eraSeconds = 86400;
+        eraOffset = 16845;
     }
 
     // modifer
@@ -189,6 +189,7 @@ contract StakeManager is IRateProvider {
     ) external onlyAdmin {
         require(validatorIdsOf[_poolAddress].contains(_srcValidatorId), "val not exist");
         require(_srcValidatorId != _dstValidatorId, "val duplicate");
+        require(_amount > 0, "amount zero");
 
         if (!validatorIdsOf[_poolAddress].contains(_dstValidatorId)) {
             validatorIdsOf[_poolAddress].add(_dstValidatorId);
