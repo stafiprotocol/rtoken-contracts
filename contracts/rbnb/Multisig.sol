@@ -44,6 +44,8 @@ contract Multisig {
     function initMultisig(address[] memory _voters, uint256 _initialThreshold) public {
         require(_voters.length >= _initialThreshold && _initialThreshold > 0, "invalid threshold");
         require(threshold == 0, "already initizlized");
+        require(_voters.length <= 16, "too much voters");
+
         threshold = _initialThreshold.toUint8();
         uint256 initialVoterCount = _voters.length;
         for (uint256 i; i < initialVoterCount; ++i) {
@@ -53,20 +55,26 @@ contract Multisig {
     }
 
     function transferOwnership(address _newOwner) public onlyAdmin {
-        require(_newOwner != address(0), "new owner is the zero address");
+        require(_newOwner != address(0), "zero address");
+
         admin = _newOwner;
     }
 
     function addVoter(address _voter) public onlyAdmin {
+        require(voters.length() < 16, "too much voters");
+
         voters.add(_voter);
     }
 
     function removeVoter(address _voter) public onlyAdmin {
+        require(voters.length() > threshold, "voters not enough");
+
         voters.remove(_voter);
     }
 
     function changeThreshold(uint256 _newThreshold) external onlyAdmin {
         require(voters.length() >= _newThreshold && _newThreshold > 0, "invalid threshold");
+
         threshold = _newThreshold.toUint8();
     }
 
