@@ -15,6 +15,7 @@ contract StakeManager is IRateProvider {
     using EnumerableSet for EnumerableSet.UintSet;
 
     address public admin;
+    address public delegationBalancer;
     address public rTokenAddress;
     address public erc20TokenAddress;
     uint256 public minStakeAmount;
@@ -64,6 +65,7 @@ contract StakeManager is IRateProvider {
         require(admin == address(0), "already init");
 
         admin = msg.sender;
+        delegationBalancer = msg.sender;
         rTokenAddress = _rTokenAddress;
         erc20TokenAddress = _erc20TokenAddress;
         unbondingDuration = _unbondingDuration;
@@ -79,6 +81,11 @@ contract StakeManager is IRateProvider {
     // modifer
     modifier onlyAdmin() {
         require(admin == msg.sender, "caller is not admin");
+        _;
+    }
+
+    modifier onlyDelegationBalancer() {
+        require(delegationBalancer == msg.sender, "caller is not delegation balancer");
         _;
     }
 
@@ -141,6 +148,16 @@ contract StakeManager is IRateProvider {
         eraRate[_era] = _rate;
     }
 
+    function transferAdmin(address _newAdmin) public onlyAdmin {
+        require(_newAdmin != address(0), "zero address");
+        admin = _newAdmin;
+    }
+
+    function transferDelegationBalancer(address _newDelegationBalancer) public onlyAdmin {
+        require(_newDelegationBalancer != address(0), "zero address");
+        delegationBalancer = _newDelegationBalancer;
+    }
+
     function setParams(
         uint256 _unstakeFeeCommission,
         uint256 _protocolFeeCommission,
@@ -186,7 +203,7 @@ contract StakeManager is IRateProvider {
         uint256 _srcValidatorId,
         uint256 _dstValidatorId,
         uint256 _amount
-    ) external onlyAdmin {
+    ) external onlyDelegationBalancer {
         require(validatorIdsOf[_poolAddress].contains(_srcValidatorId), "val not exist");
         require(_srcValidatorId != _dstValidatorId, "val duplicate");
         require(_amount > 0, "amount zero");

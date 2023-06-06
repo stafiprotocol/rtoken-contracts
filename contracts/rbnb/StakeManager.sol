@@ -48,6 +48,8 @@ contract StakeManager is Multisig, IRateProvider {
     mapping(uint256 => UnstakeInfo) public unstakeAtIndex;
     mapping(address => EnumerableSet.UintSet) unstakeOfUser;
 
+    address public delegationBalancer;
+
     // events
     event Stake(address staker, address poolAddress, uint256 tokenAmount, uint256 rTokenAmount);
     event Unstake(
@@ -86,6 +88,13 @@ contract StakeManager is Multisig, IRateProvider {
         eraSeconds = 86400;
         eraOffset = 18033;
         delegatedDiffLimit = 1e11;
+        delegationBalancer = msg.sender;
+    }
+
+    // modifer
+    modifier onlyDelegationBalancer() {
+        require(delegationBalancer == msg.sender, "caller is not delegation balancer");
+        _;
     }
 
     // ----- getters
@@ -167,6 +176,11 @@ contract StakeManager is Multisig, IRateProvider {
         undistributedRewardOf[_poolAddress] = _undistributedReward;
     }
 
+    function transferDelegationBalancer(address _newDelegationBalancer) public onlyAdmin {
+        require(_newDelegationBalancer != address(0), "zero address");
+        delegationBalancer = _newDelegationBalancer;
+    }
+
     function setParams(
         uint256 _unstakeFeeCommission,
         uint256 _protocolFeeCommission,
@@ -224,7 +238,7 @@ contract StakeManager is Multisig, IRateProvider {
         address _srcValidator,
         address _dstValidator,
         uint256 _amount
-    ) external onlyAdmin {
+    ) external onlyDelegationBalancer {
         require(validatorsOf[_poolAddress].contains(_srcValidator), "val not exist");
         require(_srcValidator != _dstValidator, "val duplicate");
 
