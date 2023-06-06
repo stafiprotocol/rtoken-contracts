@@ -53,11 +53,11 @@ contract StakeManager is IRateProvider {
     );
     event Withdraw(address staker, address poolAddress, uint256 tokenAmount, uint256[] unstakeIndexList);
     event ExecuteNewEra(uint256 indexed era, uint256 rate);
-    event Settle(uint256 indexed era, address indexed pool);
-    event RepairDelegated(address pool, address validator, uint256 govDelegated, uint256 localDelegated);
     event SetUnbondingDuration(uint256 unbondingDuration);
-    event Delegate(address pool, address validator, uint256 amount);
-    event Undelegate(address pool, address validator, uint256 amount);
+    event Delegate(address pool, uint256 validator, uint256 amount);
+    event Undelegate(address pool, uint256 validator, uint256 amount);
+    event NewReward(address pool, uint256 amount);
+    event NewClaimedNonce(address pool, uint256 validator, uint256 nonce);
 
     // init
     function init(address _rTokenAddress, address _erc20TokenAddress, uint256 _unbondingDuration) public {
@@ -174,6 +174,8 @@ contract StakeManager is IRateProvider {
         uint256[] memory validators = getValidatorIdsOf(_poolAddress);
         for (uint256 j = 0; j < validators.length; ++j) {
             require(IStakePool(_poolAddress).getTotalStakeOnValidator(validators[j]) == 0, "delegate not empty");
+
+            validatorIdsOf[_poolAddress].remove(validators[j]);
         }
 
         require(bondedPools.remove(_poolAddress), "pool not exist");
@@ -185,7 +187,15 @@ contract StakeManager is IRateProvider {
         uint256 _dstValidatorId,
         uint256 _amount
     ) external onlyAdmin {
+        require(validatorIdsOf[_poolAddress].contains(_srcValidatorId), "val not exist");
+        require(_srcValidatorId != _dstValidatorId, "val duplicate");
+
+        if (!validatorIdsOf[_poolAddress].contains(_dstValidatorId)) {
+            validatorIdsOf[_poolAddress].add(_dstValidatorId);
+        }
+
         IStakePool(_poolAddress).migrateDelegation(_srcValidatorId, _dstValidatorId, _amount);
+
         if (IStakePool(_poolAddress).getTotalStakeOnValidator(_srcValidatorId) == 0) {
             validatorIdsOf[_poolAddress].remove(_srcValidatorId);
         }
@@ -317,6 +327,7 @@ contract StakeManager is IRateProvider {
 
             // newReward
             uint256 poolNewReward = IStakePool(poolAddress).checkAndWithdrawRewards(validators);
+            emit NewReward(poolAddress, poolNewReward);
             totalNewReward = totalNewReward.add(poolNewReward);
 
             // unstakeClaimTokens
@@ -328,16 +339,18 @@ contract StakeManager is IRateProvider {
                 );
                 if (newClaimedNonce > oldClaimedNonce) {
                     maxClaimedNonceOf[poolAddress][validators[j]] = newClaimedNonce;
+
+                    emit NewClaimedNonce(poolAddress, validators[j], newClaimedNonce);
                 }
             }
 
             // bond or unbond
             PoolInfo memory poolInfo = poolInfoOf[poolAddress];
             if (poolInfo.bond.add(poolNewReward) > poolInfo.unbond) {
-                IStakePool(poolAddress).buyVoucher(
-                    validators[0],
-                    poolInfo.bond.add(poolNewReward).sub(poolInfo.unbond)
-                );
+                uint256 bondAmount = poolInfo.bond.add(poolNewReward).sub(poolInfo.unbond);
+                IStakePool(poolAddress).buyVoucher(validators[0], bondAmount);
+
+                emit Delegate(poolAddress, validators[0], bondAmount);
             } else if (poolInfo.bond.add(poolNewReward) < poolInfo.unbond) {
                 uint256 needUndelegate = poolInfo.unbond.sub(poolInfo.bond.add(poolNewReward));
 
@@ -347,13 +360,19 @@ contract StakeManager is IRateProvider {
                     }
                     uint256 totalStaked = IStakePool(poolAddress).getTotalStakeOnValidator(validators[j]);
 
+                    uint256 unbondAmount;
                     if (needUndelegate < totalStaked) {
-                        IStakePool(poolAddress).sellVoucher_new(validators[j], needUndelegate);
-
+                        unbondAmount = needUndelegate;
                         needUndelegate = 0;
                     } else {
-                        IStakePool(poolAddress).sellVoucher_new(validators[j], totalStaked);
+                        unbondAmount = totalStaked;
                         needUndelegate = needUndelegate.sub(totalStaked);
+                    }
+
+                    if (unbondAmount > 0) {
+                        IStakePool(poolAddress).sellVoucher_new(validators[j], unbondAmount);
+
+                        emit Undelegate(poolAddress, validators[j], unbondAmount);
                     }
                 }
             }
