@@ -67,7 +67,7 @@ contract StakePool is IStakePool {
         IGovStakeManager govStakeManager = IGovStakeManager(govStakeManagerAddress());
         for (uint256 j = 0; j < _validators.length; ++j) {
             address valAddress = govStakeManager.getValidatorContract(_validators[j]);
-            uint256 reward = IValidatorShare(valAddress).getLiquidRewards(valAddress);
+            uint256 reward = IValidatorShare(valAddress).getLiquidRewards(address(this));
             if (reward > 0) {
                 IValidatorShare(valAddress).buyVoucher(0, 0);
                 poolNewReward = poolNewReward.add(reward);
@@ -138,7 +138,7 @@ contract StakePool is IStakePool {
     }
 
     function approveForStakeManager(address _erc20TokenAddress, uint256 amount) external override onlyStakeManager {
-        IERC20(_erc20TokenAddress).approve(govStakeManagerAddress(), amount);
+        IERC20(_erc20TokenAddress).safeIncreaseAllowance(govStakeManagerAddress(), amount);
     }
 
     function getTotalStakeOnValidator(uint256 _validator) external view override returns (uint256) {
@@ -157,6 +157,4 @@ contract StakePool is IStakePool {
         }
         return totalStake;
     }
-
-    function getLiquidRewards(uint256 _validator) external view override returns (uint256) {}
 }

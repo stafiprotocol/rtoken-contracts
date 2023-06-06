@@ -308,7 +308,7 @@ contract StakeManager is IRateProvider {
         latestEra = _era;
 
         uint256 totalNewReward;
-        uint256 totalNewActive;
+        uint256 newTotalActive;
         address[] memory poolList = getBondedPools();
         for (uint256 i = 0; i < poolList.length; ++i) {
             address poolAddress = poolList[i];
@@ -317,6 +317,7 @@ contract StakeManager is IRateProvider {
 
             // newReward
             uint256 poolNewReward = IStakePool(poolAddress).checkAndWithdrawRewards(validators);
+            totalNewReward = totalNewReward.add(poolNewReward);
 
             // unstakeClaimTokens
             for (uint256 j = 0; j < validators.length; ++j) {
@@ -358,12 +359,12 @@ contract StakeManager is IRateProvider {
             }
 
             // cal total active
-            uint256 poolNewActive = IStakePool(poolAddress).getTotalStakeOnValidators(validators);
-            totalNewActive = totalNewActive.add(poolNewActive);
+            uint256 newPoolActive = IStakePool(poolAddress).getTotalStakeOnValidators(validators);
+            newTotalActive = newTotalActive.add(newPoolActive);
 
             // update pool state
             poolInfo.era = latestEra;
-            poolInfo.active = poolNewActive;
+            poolInfo.active = newPoolActive;
             poolInfo.bond = 0;
             poolInfo.unbond = 0;
 
@@ -381,7 +382,7 @@ contract StakeManager is IRateProvider {
         }
 
         // update rate
-        uint256 newRate = totalNewActive.mul(1e18).div(totalRTokenSupply);
+        uint256 newRate = newTotalActive.mul(1e18).div(totalRTokenSupply);
         uint256 rateChange = newRate > rate ? newRate.sub(rate) : rate.sub(newRate);
         require(rateChange.mul(1e18).div(rate) < rateChangeLimit, "rate change over limit");
 
