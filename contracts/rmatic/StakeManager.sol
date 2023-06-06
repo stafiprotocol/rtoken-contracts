@@ -198,6 +198,16 @@ contract StakeManager is IRateProvider {
         require(bondedPools.remove(_poolAddress), "pool not exist");
     }
 
+    function approve(address _poolAddress, uint256 _amount) external onlyAdmin {
+        IStakePool(_poolAddress).approveForStakeManager(erc20TokenAddress, _amount);
+    }
+
+    function withdrawProtocolFee(address _to) external onlyAdmin {
+        IERC20(rTokenAddress).safeTransfer(_to, IERC20(rTokenAddress).balanceOf(address(this)));
+    }
+
+    // ------ delegation balancer
+
     function redelegate(
         address _poolAddress,
         uint256 _srcValidatorId,
@@ -217,14 +227,6 @@ contract StakeManager is IRateProvider {
         if (IStakePool(_poolAddress).getTotalStakeOnValidator(_srcValidatorId) == 0) {
             validatorIdsOf[_poolAddress].remove(_srcValidatorId);
         }
-    }
-
-    function withdrawProtocolFee(address _to) external onlyAdmin {
-        IERC20(rTokenAddress).safeTransfer(_to, IERC20(rTokenAddress).balanceOf(address(this)));
-    }
-
-    function approve(address _poolAddress, uint256 _amount) external onlyAdmin {
-        IStakePool(_poolAddress).approveForStakeManager(erc20TokenAddress, _amount);
     }
 
     // ----- staker operation

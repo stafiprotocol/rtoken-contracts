@@ -233,6 +233,17 @@ contract StakeManager is Multisig, IRateProvider {
         delete (waitingRemovedValidator[_validator]);
     }
 
+    function withdrawProtocolFee(address _to) external onlyAdmin {
+        IERC20(rTokenAddress).safeTransfer(_to, IERC20(rTokenAddress).balanceOf(address(this)));
+    }
+
+    function withdrawRelayerFee(address _to) external onlyAdmin {
+        (bool success, ) = _to.call{value: address(this).balance}("");
+        require(success, "failed to withdraw");
+    }
+
+    // ------ delegation balancer
+
     function redelegate(
         address _poolAddress,
         address _srcValidator,
@@ -266,15 +277,6 @@ contract StakeManager is Multisig, IRateProvider {
         if (delegatedOfValidator[_poolAddress][_srcValidator] == 0) {
             waitingRemovedValidator[_srcValidator] = true;
         }
-    }
-
-    function withdrawProtocolFee(address _to) external onlyAdmin {
-        IERC20(rTokenAddress).safeTransfer(_to, IERC20(rTokenAddress).balanceOf(address(this)));
-    }
-
-    function withdrawRelayerFee(address _to) external onlyAdmin {
-        (bool success, ) = _to.call{value: address(this).balance}("");
-        require(success, "failed to withdraw");
     }
 
     // ----- staker operation
