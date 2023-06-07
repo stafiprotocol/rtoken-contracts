@@ -52,7 +52,7 @@ contract StakeManager is IRateProvider {
         uint256 burnAmount,
         uint256 unstakeIndex
     );
-    event Withdraw(address staker, address poolAddress, uint256 tokenAmount, uint256[] unstakeIndexList);
+    event Withdraw(address staker, address poolAddress, uint256 tokenAmount, int256[] unstakeIndexList);
     event ExecuteNewEra(uint256 indexed era, uint256 rate);
     event SetUnbondingDuration(uint256 unbondingDuration);
     event Delegate(address pool, uint256 validator, uint256 amount);
@@ -304,6 +304,7 @@ contract StakeManager is IRateProvider {
         uint256 totalWithdrawAmount;
         uint256 length = unstakeOfUser[msg.sender].length();
         uint256[] memory unstakeIndexList = new uint256[](length);
+        int256[] memory emitUnstakeIndexList = new int256[](length);
 
         for (uint256 i = 0; i < length; ++i) {
             unstakeIndexList[i] = unstakeOfUser[msg.sender].at(i);
@@ -313,19 +314,21 @@ contract StakeManager is IRateProvider {
             uint256 unstakeIndex = unstakeIndexList[i];
             UnstakeInfo memory unstakeInfo = unstakeAtIndex[unstakeIndex];
             if (unstakeInfo.era.add(unbondingDuration) > curEra || unstakeInfo.pool != _poolAddress) {
+                emitUnstakeIndexList[i] = -1;
                 continue;
             }
 
             require(unstakeOfUser[msg.sender].remove(unstakeIndex), "already withdrawed");
 
             totalWithdrawAmount = totalWithdrawAmount.add(unstakeInfo.amount);
+            emitUnstakeIndexList[i] = int256(unstakeIndex);
         }
 
         if (totalWithdrawAmount > 0) {
             IStakePool(_poolAddress).withdrawForStaker(erc20TokenAddress, msg.sender, totalWithdrawAmount);
         }
 
-        emit Withdraw(msg.sender, _poolAddress, totalWithdrawAmount, unstakeIndexList);
+        emit Withdraw(msg.sender, _poolAddress, totalWithdrawAmount, emitUnstakeIndexList);
     }
 
     // ----- permissionless
