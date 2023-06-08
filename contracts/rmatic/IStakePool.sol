@@ -5,15 +5,15 @@ pragma solidity 0.7.6;
 interface IStakePool {
     function checkAndWithdrawRewards(uint256[] calldata validator) external returns (uint256 reward);
 
-    function buyVoucher(uint256 validator, uint256 amount) external returns (uint256 amountToDeposit);
+    function delegate(uint256 validator, uint256 amount) external returns (uint256 amountToDeposit);
 
-    function sellVoucher_new(uint256 validator, uint256 claimAmount) external;
+    function undelegate(uint256 validator, uint256 claimAmount) external;
 
-    function unstakeClaimTokens_new(uint256 validator, uint256 claimedNonce) external returns (uint256);
+    function redelegate(uint256 fromValidatorId, uint256 toValidatorId, uint256 amount) external;
+
+    function unstakeClaimTokens(uint256 validator, uint256 claimedNonce) external returns (uint256);
 
     function withdrawForStaker(address erc20TokenAddress, address staker, uint256 amount) external;
-
-    function migrateDelegation(uint256 fromValidatorId, uint256 toValidatorId, uint256 amount) external;
 
     function approveForStakeManager(address erc20TokenAddress, uint256 amount) external;
 

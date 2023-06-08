@@ -222,7 +222,7 @@ contract StakeManager is IRateProvider {
             validatorIdsOf[_poolAddress].add(_dstValidatorId);
         }
 
-        IStakePool(_poolAddress).migrateDelegation(_srcValidatorId, _dstValidatorId, _amount);
+        IStakePool(_poolAddress).redelegate(_srcValidatorId, _dstValidatorId, _amount);
 
         if (IStakePool(_poolAddress).getTotalStakeOnValidator(_srcValidatorId) == 0) {
             validatorIdsOf[_poolAddress].remove(_srcValidatorId);
@@ -356,10 +356,7 @@ contract StakeManager is IRateProvider {
             // unstakeClaimTokens
             for (uint256 j = 0; j < validators.length; ++j) {
                 uint256 oldClaimedNonce = maxClaimedNonceOf[poolAddress][validators[j]];
-                uint256 newClaimedNonce = IStakePool(poolAddress).unstakeClaimTokens_new(
-                    validators[j],
-                    oldClaimedNonce
-                );
+                uint256 newClaimedNonce = IStakePool(poolAddress).unstakeClaimTokens(validators[j], oldClaimedNonce);
                 if (newClaimedNonce > oldClaimedNonce) {
                     maxClaimedNonceOf[poolAddress][validators[j]] = newClaimedNonce;
 
@@ -371,7 +368,7 @@ contract StakeManager is IRateProvider {
             PoolInfo memory poolInfo = poolInfoOf[poolAddress];
             if (poolInfo.bond.add(poolNewReward) > poolInfo.unbond) {
                 uint256 bondAmount = poolInfo.bond.add(poolNewReward).sub(poolInfo.unbond);
-                IStakePool(poolAddress).buyVoucher(validators[0], bondAmount);
+                IStakePool(poolAddress).delegate(validators[0], bondAmount);
 
                 emit Delegate(poolAddress, validators[0], bondAmount);
             } else if (poolInfo.bond.add(poolNewReward) < poolInfo.unbond) {
@@ -393,7 +390,7 @@ contract StakeManager is IRateProvider {
                     }
 
                     if (unbondAmount > 0) {
-                        IStakePool(poolAddress).sellVoucher_new(validators[j], unbondAmount);
+                        IStakePool(poolAddress).undelegate(validators[j], unbondAmount);
 
                         emit Undelegate(poolAddress, validators[j], unbondAmount);
                     }

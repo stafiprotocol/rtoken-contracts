@@ -76,7 +76,7 @@ contract StakePool is IStakePool {
         return poolNewReward;
     }
 
-    function buyVoucher(
+    function delegate(
         uint256 _validator,
         uint256 _amount
     ) external override onlyStakeManager returns (uint256 amountToDeposit) {
@@ -84,12 +84,12 @@ contract StakePool is IStakePool {
         return IValidatorShare(valAddress).buyVoucher(_amount, 0);
     }
 
-    function sellVoucher_new(uint256 _validator, uint256 _claimAmount) external override onlyStakeManager {
+    function undelegate(uint256 _validator, uint256 _claimAmount) external override onlyStakeManager {
         address valAddress = IGovStakeManager(govStakeManagerAddress()).getValidatorContract(_validator);
         IValidatorShare(valAddress).sellVoucher_new(_claimAmount, _claimAmount);
     }
 
-    function unstakeClaimTokens_new(
+    function unstakeClaimTokens(
         uint256 _validator,
         uint256 _claimedNonce
     ) external override onlyStakeManager returns (uint256) {
@@ -129,7 +129,7 @@ contract StakePool is IStakePool {
         }
     }
 
-    function migrateDelegation(
+    function redelegate(
         uint256 _fromValidatorId,
         uint256 _toValidatorId,
         uint256 _amount
