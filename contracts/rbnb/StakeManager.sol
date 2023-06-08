@@ -40,13 +40,13 @@ contract StakeManager is Multisig, IRateProvider {
     mapping(address => uint256) public pendingDelegateOf;
     mapping(address => uint256) public pendingUndelegateOf;
     mapping(address => mapping(address => uint256)) public delegatedOfValidator; // delegator => validator => amount
-    mapping(address => bool) waitingRemovedValidator;
+    mapping(address => bool) public waitingRemovedValidator;
     mapping(uint256 => uint256) public eraRate;
 
     // unstake info
     uint256 public nextUnstakeIndex;
     mapping(uint256 => UnstakeInfo) public unstakeAtIndex;
-    mapping(address => EnumerableSet.UintSet) unstakeOfUser;
+    mapping(address => EnumerableSet.UintSet) unstakesOfUser;
 
     address public delegationBalancer;
 
@@ -128,9 +128,9 @@ contract StakeManager is Multisig, IRateProvider {
     }
 
     function getUnstakeIndexListOf(address _staker) external view returns (uint256[] memory unstakeIndexList) {
-        unstakeIndexList = new uint256[](unstakeOfUser[_staker].length());
-        for (uint256 i = 0; i < unstakeOfUser[_staker].length(); ++i) {
-            unstakeIndexList[i] = unstakeOfUser[_staker].at(i);
+        unstakeIndexList = new uint256[](unstakesOfUser[_staker].length());
+        for (uint256 i = 0; i < unstakesOfUser[_staker].length(); ++i) {
+            unstakeIndexList[i] = unstakesOfUser[_staker].at(i);
         }
         return unstakeIndexList;
     }
@@ -324,7 +324,7 @@ contract StakeManager is Multisig, IRateProvider {
         require(bondedPools.contains(_poolAddress), "pool not exist");
         (bool success, ) = msg.sender.call{gas: transferGas}("");
         require(success, "unstaker not payable");
-        require(unstakeOfUser[msg.sender].length() <= 100, "unstake number limit"); //todo test max limit number
+        require(unstakesOfUser[msg.sender].length() <= 100, "unstake number limit"); //todo test max limit number
 
         uint256 unstakeFee = _rTokenAmount.mul(unstakeFeeCommission).div(1e18);
         uint256 leftRTokenAmount = _rTokenAmount.sub(unstakeFee);
@@ -350,7 +350,7 @@ contract StakeManager is Multisig, IRateProvider {
             receiver: msg.sender,
             amount: tokenAmount
         });
-        unstakeOfUser[msg.sender].add(nextUnstakeIndex);
+        unstakesOfUser[msg.sender].add(nextUnstakeIndex);
 
         emit Unstake(msg.sender, _poolAddress, tokenAmount, _rTokenAmount, leftRTokenAmount, nextUnstakeIndex);
 
@@ -361,12 +361,12 @@ contract StakeManager is Multisig, IRateProvider {
         require(msg.value >= CROSS_DISTRIBUTE_RELAY_FEE, "fee not enough");
 
         uint256 totalWithdrawAmount;
-        uint256 length = unstakeOfUser[msg.sender].length();
+        uint256 length = unstakesOfUser[msg.sender].length();
         uint256[] memory unstakeIndexList = new uint256[](length);
         int256[] memory emitUnstakeIndexList = new int256[](length);
 
         for (uint256 i = 0; i < length; ++i) {
-            unstakeIndexList[i] = unstakeOfUser[msg.sender].at(i);
+            unstakeIndexList[i] = unstakesOfUser[msg.sender].at(i);
         }
         uint256 curEra = currentEra();
         for (uint256 i = 0; i < length; ++i) {
@@ -377,7 +377,7 @@ contract StakeManager is Multisig, IRateProvider {
                 continue;
             }
 
-            require(unstakeOfUser[msg.sender].remove(unstakeIndex), "already withdrawed");
+            require(unstakesOfUser[msg.sender].remove(unstakeIndex), "already withdrawed");
 
             totalWithdrawAmount = totalWithdrawAmount.add(unstakeInfo.amount);
             emitUnstakeIndexList[i] = int256(unstakeIndex);

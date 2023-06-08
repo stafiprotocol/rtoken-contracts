@@ -35,7 +35,7 @@ contract StakeManager is IRateProvider {
     EnumerableSet.AddressSet bondedPools;
     mapping(address => EnumerableSet.UintSet) validatorIdsOf; // pool => validatorIds
     mapping(uint256 => uint256) public eraRate; // era => rate
-    mapping(address => uint256) undelegateRewardOf; // pool => undelegate reward
+    mapping(address => uint256) public undelegateRewardOf; // pool => undelegate reward
 
     // unstake info
     uint256 public nextUnstakeIndex;
