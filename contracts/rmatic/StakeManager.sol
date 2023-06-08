@@ -5,6 +5,7 @@ import {SafeERC20, IERC20, SafeMath} from "@openzeppelin/contracts/token/ERC20/S
 import "../balancer-metastable-rate-providers/interfaces/IRateProvider.sol";
 import "./Types.sol";
 import "./IStakePool.sol";
+import "./IGovStakeManager.sol";
 import "./IERC20MintBurn.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/EnumerableSet.sol";
 
@@ -18,6 +19,7 @@ contract StakeManager is IRateProvider {
     address public delegationBalancer;
     address public rTokenAddress;
     address public erc20TokenAddress;
+    address public govStakeManagerAddress;
     uint256 public minStakeAmount;
     uint256 public unstakeFeeCommission; // decimals 18
     uint256 public protocolFeeCommission; // decimals 18
@@ -56,13 +58,14 @@ contract StakeManager is IRateProvider {
     event DelegateReward(address pool, uint256 validator, uint256 amount);
 
     // init
-    function init(address _rTokenAddress, address _erc20TokenAddress) public {
+    function init(address _rTokenAddress, address _erc20TokenAddress, address _govStakeManagerAddress) public {
         require(admin == address(0), "already init");
 
         admin = msg.sender;
         delegationBalancer = msg.sender;
         rTokenAddress = _rTokenAddress;
         erc20TokenAddress = _erc20TokenAddress;
+        govStakeManagerAddress = _govStakeManagerAddress;
 
         minStakeAmount = 1e12;
         rateChangeLimit = 1e15;
@@ -267,14 +270,9 @@ contract StakeManager is IRateProvider {
         totalProtocolFee = totalProtocolFee.add(unstakeFee);
         IERC20(rTokenAddress).safeTransferFrom(msg.sender, address(this), unstakeFee);
 
-        uint256[] memory validators = getValidatorIdsOf(_poolAddress);
-        uint256 newReward = IStakePool(_poolAddress).getLiquidRewards(validators[0]);
-        if (newReward > 0) {
-            undelegateRewardOf[_poolAddress] = undelegateRewardOf[_poolAddress].add(newReward);
-        }
-
         // undelegate
         uint256 needUndelegate = tokenAmount;
+        uint256[] memory validators = getValidatorIdsOf(_poolAddress);
         for (uint256 j = 0; j < validators.length; ++j) {
             if (needUndelegate == 0) {
                 break;
@@ -291,6 +289,12 @@ contract StakeManager is IRateProvider {
             }
 
             if (unbondAmount > 0) {
+                // cache reward
+                uint256 newReward = IStakePool(_poolAddress).getLiquidRewards(validators[0]);
+                if (newReward > 0) {
+                    undelegateRewardOf[_poolAddress] = undelegateRewardOf[_poolAddress].add(newReward);
+                }
+
                 IStakePool(_poolAddress).undelegate(validators[j], unbondAmount);
 
                 // unstake info
@@ -330,11 +334,23 @@ contract StakeManager is IRateProvider {
         for (uint256 i = 0; i < length; ++i) {
             unstakeIndexList[i] = unstakesOfUser[msg.sender].at(i);
         }
+
+        IGovStakeManager govStakeManager = IGovStakeManager(govStakeManagerAddress);
+        uint256 withdrawDelay = govStakeManager.withdrawalDelay();
+        uint256 epoch = govStakeManager.epoch();
+
         for (uint256 i = 0; i < length; ++i) {
             uint256 unstakeIndex = unstakeIndexList[i];
             UnstakeInfo memory unstakeInfo = unstakeAtIndex[unstakeIndex];
 
-            if (!IStakePool(_poolAddress).unstakeClaimTokens(unstakeInfo.validator, unstakeInfo.nonce)) {
+            if (
+                !IStakePool(_poolAddress).unstakeClaimTokens(
+                    unstakeInfo.validator,
+                    unstakeInfo.nonce,
+                    withdrawDelay,
+                    epoch
+                )
+            ) {
                 emitUnstakeIndexList[i] = -1;
                 continue;
             }

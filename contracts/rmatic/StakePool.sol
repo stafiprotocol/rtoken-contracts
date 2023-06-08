@@ -89,18 +89,22 @@ contract StakePool is IStakePool {
         IValidatorShare(valAddress).sellVoucher_new(_claimAmount, _claimAmount);
     }
 
-    function unstakeClaimTokens(uint256 _validator, uint256 _nonce) external override onlyStakeManager returns (bool) {
+    function unstakeClaimTokens(
+        uint256 _validator,
+        uint256 _nonce,
+        uint256 _withdrawDelay,
+        uint256 _epoch
+    ) external override onlyStakeManager returns (bool) {
         IGovStakeManager govStakeManager = IGovStakeManager(govStakeManagerAddress());
         address valAddress = govStakeManager.getValidatorContract(_validator);
         IValidatorShare.DelegatorUnbond memory unbond = IValidatorShare(valAddress).unbonds_new(address(this), _nonce);
+
+        require(unbond.withdrawEpoch != 0, "unbond not exist");
         if (unbond.shares == 0) {
             return true;
         }
 
-        uint256 withdrawDelay = govStakeManager.withdrawalDelay();
-        uint256 epoch = govStakeManager.epoch();
-
-        if (unbond.withdrawEpoch.add(withdrawDelay) > epoch) {
+        if (unbond.withdrawEpoch.add(_withdrawDelay) > _epoch) {
             return false;
         }
 
