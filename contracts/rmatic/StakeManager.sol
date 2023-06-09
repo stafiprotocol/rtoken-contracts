@@ -290,7 +290,7 @@ contract StakeManager is IRateProvider {
 
             if (unbondAmount > 0) {
                 // cache reward
-                uint256 newReward = IStakePool(_poolAddress).getLiquidRewards(validators[0]);
+                uint256 newReward = IStakePool(_poolAddress).getLiquidRewards(validators[j]);
                 if (newReward > 0) {
                     undelegateRewardOf[_poolAddress] = undelegateRewardOf[_poolAddress].add(newReward);
                 }
