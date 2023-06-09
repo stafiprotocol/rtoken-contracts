@@ -47,11 +47,11 @@ contract StakeManager is IRateProvider {
     event Unstake(
         address staker,
         address poolAddress,
-        uint256[] validator,
+        int256[] validator,
         uint256 tokenAmount,
         uint256 rTokenAmount,
         uint256 burnAmount,
-        uint256[] unstakeIndexList
+        int256[] unstakeIndexList
     );
     event Withdraw(address staker, address poolAddress, uint256 tokenAmount, int256[] unstakeIndexList);
     event ExecuteNewEra(uint256 indexed era, uint256 rate);
@@ -271,14 +271,38 @@ contract StakeManager is IRateProvider {
         IERC20(rTokenAddress).safeTransferFrom(msg.sender, address(this), unstakeFee);
 
         // undelegate
-        uint256 needUndelegate = tokenAmount;
-        uint256[] memory validators = getValidatorIdsOf(_poolAddress);
-        uint256 emitLength;
+        (int256[] memory emitValidators, int256[] memory emitUnstakeIndexList) = undelegate(
+            _poolAddress,
+            getValidatorIdsOf(_poolAddress),
+            tokenAmount
+        );
+
+        emit Unstake(
+            msg.sender,
+            _poolAddress,
+            emitValidators,
+            tokenAmount,
+            _rTokenAmount,
+            leftRTokenAmount,
+            emitUnstakeIndexList
+        );
+    }
+
+    function undelegate(
+        address poolAddress,
+        uint256[] memory validators,
+        uint256 needUndelegate
+    ) private returns (int256[] memory, int256[] memory) {
+        int256[] memory emitValidators = new int256[](validators.length);
+        int256[] memory emitUnstakeIndexList = new int256[](validators.length);
         for (uint256 j = 0; j < validators.length; ++j) {
+            emitValidators[j] = -1;
+            emitUnstakeIndexList[j] = -1;
             if (needUndelegate == 0) {
-                break;
+                continue;
             }
-            uint256 totalStaked = IStakePool(_poolAddress).getTotalStakeOnValidator(validators[j]);
+
+            uint256 totalStaked = IStakePool(poolAddress).getTotalStakeOnValidator(validators[j]);
 
             uint256 unbondAmount;
             if (needUndelegate < totalStaked) {
@@ -291,49 +315,33 @@ contract StakeManager is IRateProvider {
 
             if (unbondAmount > 0) {
                 // cache reward
-                uint256 newReward = IStakePool(_poolAddress).getLiquidRewards(validators[j]);
+                uint256 newReward = IStakePool(poolAddress).getLiquidRewards(validators[j]);
                 if (newReward > 0) {
-                    undelegateRewardOf[_poolAddress] = undelegateRewardOf[_poolAddress].add(newReward);
+                    undelegateRewardOf[poolAddress] = undelegateRewardOf[poolAddress].add(newReward);
                 }
 
-                IStakePool(_poolAddress).undelegate(validators[j], unbondAmount);
+                IStakePool(poolAddress).undelegate(validators[j], unbondAmount);
 
                 // unstake info
                 uint256 willUseUnstakeIndex = nextUnstakeIndex;
                 nextUnstakeIndex = willUseUnstakeIndex.add(1);
 
                 unstakeAtIndex[willUseUnstakeIndex] = UnstakeInfo({
-                    pool: _poolAddress,
+                    pool: poolAddress,
                     validator: validators[j],
                     receiver: msg.sender,
                     amount: unbondAmount,
-                    nonce: IStakePool(_poolAddress).unbondNonces(validators[j])
+                    nonce: IStakePool(poolAddress).unbondNonces(validators[j])
                 });
                 unstakesOfUser[msg.sender].add(willUseUnstakeIndex);
 
-                emitLength = emitLength.add(1);
+                emitValidators[j] = int256(validators[j]);
+                emitUnstakeIndexList[j] = int256(willUseUnstakeIndex);
             }
         }
 
         require(needUndelegate == 0, "undelegate not enough");
-
-        // event
-        uint256[] memory unStakeUseValidators = new uint256[](emitLength);
-        uint256[] memory unstakeIndexList = new uint256[](emitLength);
-        for (uint256 i = 0; i < emitLength; ++i) {
-            unStakeUseValidators[i] = validators[i];
-            unstakeIndexList[i] = nextUnstakeIndex.add(i).sub(emitLength);
-        }
-
-        emit Unstake(
-            msg.sender,
-            _poolAddress,
-            unStakeUseValidators,
-            tokenAmount,
-            _rTokenAmount,
-            leftRTokenAmount,
-            unstakeIndexList
-        );
+        return (emitValidators, emitUnstakeIndexList);
     }
 
     function withdrawWithPool(address _poolAddress) public {
