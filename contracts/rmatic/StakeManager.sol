@@ -47,11 +47,11 @@ contract StakeManager is IRateProvider {
     event Unstake(
         address staker,
         address poolAddress,
-        uint256 validator,
+        uint256[] validator,
         uint256 tokenAmount,
         uint256 rTokenAmount,
         uint256 burnAmount,
-        uint256 unstakeIndex
+        uint256[] unstakeIndexList
     );
     event Withdraw(address staker, address poolAddress, uint256 tokenAmount, int256[] unstakeIndexList);
     event ExecuteNewEra(uint256 indexed era, uint256 rate);
@@ -273,6 +273,7 @@ contract StakeManager is IRateProvider {
         // undelegate
         uint256 needUndelegate = tokenAmount;
         uint256[] memory validators = getValidatorIdsOf(_poolAddress);
+        uint256 emitLength;
         for (uint256 j = 0; j < validators.length; ++j) {
             if (needUndelegate == 0) {
                 break;
@@ -305,24 +306,34 @@ contract StakeManager is IRateProvider {
                     pool: _poolAddress,
                     validator: validators[j],
                     receiver: msg.sender,
-                    amount: tokenAmount,
+                    amount: unbondAmount,
                     nonce: IStakePool(_poolAddress).unbondNonces(validators[j])
                 });
                 unstakesOfUser[msg.sender].add(willUseUnstakeIndex);
 
-                emit Unstake(
-                    msg.sender,
-                    _poolAddress,
-                    validators[j],
-                    tokenAmount,
-                    _rTokenAmount,
-                    leftRTokenAmount,
-                    willUseUnstakeIndex
-                );
+                emitLength = emitLength.add(1);
             }
         }
 
         require(needUndelegate == 0, "undelegate not enough");
+
+        // event
+        uint256[] memory unStakeUseValidators = new uint256[](emitLength);
+        uint256[] memory unstakeIndexList = new uint256[](emitLength);
+        for (uint256 i = 0; i < emitLength; ++i) {
+            unStakeUseValidators[i] = validators[i];
+            unstakeIndexList[i] = nextUnstakeIndex.add(i).sub(emitLength);
+        }
+
+        emit Unstake(
+            msg.sender,
+            _poolAddress,
+            unStakeUseValidators,
+            tokenAmount,
+            _rTokenAmount,
+            leftRTokenAmount,
+            unstakeIndexList
+        );
     }
 
     function withdrawWithPool(address _poolAddress) public {
