@@ -47,11 +47,11 @@ contract StakeManager is IRateProvider {
     event Unstake(
         address staker,
         address poolAddress,
-        int256[] validator,
         uint256 tokenAmount,
         uint256 rTokenAmount,
         uint256 burnAmount,
-        int256[] unstakeIndexList
+        uint256 startUnstakeIndex,
+        uint256 endUnstakeIndex
     );
     event Withdraw(address staker, address poolAddress, uint256 tokenAmount, int256[] unstakeIndexList);
     event ExecuteNewEra(uint256 indexed era, uint256 rate);
@@ -271,35 +271,24 @@ contract StakeManager is IRateProvider {
         IERC20(rTokenAddress).safeTransferFrom(msg.sender, address(this), unstakeFee);
 
         // undelegate
-        (int256[] memory emitValidators, int256[] memory emitUnstakeIndexList) = undelegate(
-            _poolAddress,
-            getValidatorIdsOf(_poolAddress),
-            tokenAmount
-        );
+        uint256 startUnstakeIndex = nextUnstakeIndex;
+        undelegate(_poolAddress, getValidatorIdsOf(_poolAddress), tokenAmount);
 
         emit Unstake(
             msg.sender,
             _poolAddress,
-            emitValidators,
             tokenAmount,
             _rTokenAmount,
             leftRTokenAmount,
-            emitUnstakeIndexList
+            startUnstakeIndex,
+            nextUnstakeIndex
         );
     }
 
-    function undelegate(
-        address poolAddress,
-        uint256[] memory validators,
-        uint256 needUndelegate
-    ) private returns (int256[] memory, int256[] memory) {
-        int256[] memory emitValidators = new int256[](validators.length);
-        int256[] memory emitUnstakeIndexList = new int256[](validators.length);
+    function undelegate(address poolAddress, uint256[] memory validators, uint256 needUndelegate) private {
         for (uint256 j = 0; j < validators.length; ++j) {
-            emitValidators[j] = -1;
-            emitUnstakeIndexList[j] = -1;
             if (needUndelegate == 0) {
-                continue;
+                break;
             }
 
             uint256 totalStaked = IStakePool(poolAddress).getTotalStakeOnValidator(validators[j]);
@@ -334,14 +323,10 @@ contract StakeManager is IRateProvider {
                     nonce: IStakePool(poolAddress).unbondNonces(validators[j])
                 });
                 unstakesOfUser[msg.sender].add(willUseUnstakeIndex);
-
-                emitValidators[j] = int256(validators[j]);
-                emitUnstakeIndexList[j] = int256(willUseUnstakeIndex);
             }
         }
 
         require(needUndelegate == 0, "undelegate not enough");
-        return (emitValidators, emitUnstakeIndexList);
     }
 
     function withdrawWithPool(address _poolAddress) public {
