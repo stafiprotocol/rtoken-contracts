@@ -281,7 +281,7 @@ contract StakeManager is IRateProvider {
             _rTokenAmount,
             leftRTokenAmount,
             startUnstakeIndex,
-            nextUnstakeIndex
+            nextUnstakeIndex.sub(1)
         );
     }
 
