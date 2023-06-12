@@ -14,6 +14,8 @@ contract StakeManager is IRateProvider {
     using EnumerableSet for EnumerableSet.AddressSet;
     using EnumerableSet for EnumerableSet.UintSet;
 
+    uint256 public constant UNBOND_TIMES_LIMIT = 100;
+
     address public admin;
     address public delegationBalancer;
     address public rTokenAddress;
@@ -267,7 +269,7 @@ contract StakeManager is IRateProvider {
     function unstakeWithPool(address _poolAddress, uint256 _rTokenAmount) public {
         require(_rTokenAmount > 0, "rtoken amount zero");
         require(bondedPools.contains(_poolAddress), "pool not exist");
-        require(unstakesOfUser[msg.sender].length() <= 100, "unstake number limit"); //todo test max limit number
+        require(unstakesOfUser[msg.sender].length() <= UNBOND_TIMES_LIMIT, "unstake times limit");
 
         uint256 unstakeFee = _rTokenAmount.mul(unstakeFeeCommission).div(1e18);
         uint256 leftRTokenAmount = _rTokenAmount.sub(unstakeFee);

@@ -15,6 +15,7 @@ contract StakeManager is Multisig, IRateProvider {
     using EnumerableSet for EnumerableSet.UintSet;
 
     uint256 public constant CROSS_DISTRIBUTE_RELAY_FEE = 6 * 1e15;
+    uint256 public constant UNBOND_TIMES_LIMIT = 100;
 
     address public rTokenAddress;
     uint256 public minStakeAmount;
@@ -324,7 +325,7 @@ contract StakeManager is Multisig, IRateProvider {
         require(bondedPools.contains(_poolAddress), "pool not exist");
         (bool success, ) = msg.sender.call{gas: transferGas}("");
         require(success, "unstaker not payable");
-        require(unstakesOfUser[msg.sender].length() <= 100, "unstake number limit"); //todo test max limit number
+        require(unstakesOfUser[msg.sender].length() <= UNBOND_TIMES_LIMIT, "unstake times limit");
 
         uint256 unstakeFee = _rTokenAmount.mul(unstakeFeeCommission).div(1e18);
         uint256 leftRTokenAmount = _rTokenAmount.sub(unstakeFee);
