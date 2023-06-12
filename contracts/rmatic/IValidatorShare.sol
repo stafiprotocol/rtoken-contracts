@@ -24,6 +24,4 @@ interface IValidatorShare {
     function getLiquidRewards(address user) external view returns (uint256);
 
     function unbonds_new(address user, uint256 nonce) external view returns (DelegatorUnbond calldata);
-
-    function unbondNonces(address user) external view returns (uint256);
 }

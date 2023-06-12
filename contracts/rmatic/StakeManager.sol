@@ -5,7 +5,6 @@ import {SafeERC20, IERC20, SafeMath} from "@openzeppelin/contracts/token/ERC20/S
 import "../balancer-metastable-rate-providers/interfaces/IRateProvider.sol";
 import "./Types.sol";
 import "./IStakePool.sol";
-import "./IGovStakeManager.sol";
 import "./IERC20MintBurn.sol";
 import {EnumerableSet} from "@openzeppelin/contracts/utils/EnumerableSet.sol";
 
@@ -19,13 +18,13 @@ contract StakeManager is IRateProvider {
     address public delegationBalancer;
     address public rTokenAddress;
     address public erc20TokenAddress;
-    address public govStakeManagerAddress;
     uint256 public minStakeAmount;
     uint256 public unstakeFeeCommission; // decimals 18
     uint256 public protocolFeeCommission; // decimals 18
     uint256 public rateChangeLimit; // decimals 18
     uint256 public eraSeconds;
     uint256 public eraOffset;
+    uint256 public unbondingDuration;
 
     uint256 public latestEra;
     uint256 private rate; // decimals 18
@@ -33,39 +32,43 @@ contract StakeManager is IRateProvider {
     uint256 public totalProtocolFee;
 
     EnumerableSet.AddressSet bondedPools;
-    mapping(address => EnumerableSet.UintSet) validatorIdsOf; // pool => validatorIds
-    mapping(uint256 => uint256) public eraRate; // era => rate
-    mapping(address => uint256) public undelegateRewardOf; // pool => undelegate reward
+    mapping(address => PoolInfo) public poolInfoOf;
+    mapping(address => EnumerableSet.UintSet) validatorIdsOf;
+    mapping(address => mapping(uint256 => uint256)) maxClaimedNonceOf; // pool => validator Id => max claimed nonce
+    mapping(uint256 => uint256) public eraRate;
 
     // unstake info
     uint256 public nextUnstakeIndex;
     mapping(uint256 => UnstakeInfo) public unstakeAtIndex;
-    mapping(address => EnumerableSet.UintSet) unstakesOfUser;
+    mapping(address => EnumerableSet.UintSet) unstakeOfUser;
 
     // events
-    event Stake(address staker, address poolAddress, uint256 validator, uint256 tokenAmount, uint256 rTokenAmount);
+    event Stake(address staker, address poolAddress, uint256 tokenAmount, uint256 rTokenAmount);
     event Unstake(
         address staker,
         address poolAddress,
         uint256 tokenAmount,
         uint256 rTokenAmount,
         uint256 burnAmount,
-        uint256 startUnstakeIndex,
-        uint256 endUnstakeIndex
+        uint256 unstakeIndex
     );
     event Withdraw(address staker, address poolAddress, uint256 tokenAmount, int256[] unstakeIndexList);
     event ExecuteNewEra(uint256 indexed era, uint256 rate);
-    event DelegateReward(address pool, uint256 validator, uint256 amount);
+    event SetUnbondingDuration(uint256 unbondingDuration);
+    event Delegate(address pool, uint256 validator, uint256 amount);
+    event Undelegate(address pool, uint256 validator, uint256 amount);
+    event NewReward(address pool, uint256 amount);
+    event NewClaimedNonce(address pool, uint256 validator, uint256 nonce);
 
     // init
-    function init(address _rTokenAddress, address _erc20TokenAddress, address _govStakeManagerAddress) public {
+    function init(address _rTokenAddress, address _erc20TokenAddress, uint256 _unbondingDuration) public {
         require(admin == address(0), "already init");
 
         admin = msg.sender;
         delegationBalancer = msg.sender;
         rTokenAddress = _rTokenAddress;
         erc20TokenAddress = _erc20TokenAddress;
-        govStakeManagerAddress = _govStakeManagerAddress;
+        unbondingDuration = _unbondingDuration;
 
         minStakeAmount = 1e12;
         rateChangeLimit = 1e15;
@@ -109,9 +112,9 @@ contract StakeManager is IRateProvider {
     }
 
     function getUnstakeIndexListOf(address _staker) external view returns (uint256[] memory unstakeIndexList) {
-        unstakeIndexList = new uint256[](unstakesOfUser[_staker].length());
-        for (uint256 i = 0; i < unstakesOfUser[_staker].length(); ++i) {
-            unstakeIndexList[i] = unstakesOfUser[_staker].at(i);
+        unstakeIndexList = new uint256[](unstakeOfUser[_staker].length());
+        for (uint256 i = 0; i < unstakeOfUser[_staker].length(); ++i) {
+            unstakeIndexList[i] = unstakeOfUser[_staker].at(i);
         }
         return unstakeIndexList;
     }
@@ -125,6 +128,9 @@ contract StakeManager is IRateProvider {
     function migrate(
         address _poolAddress,
         uint256 _validatorId,
+        uint256 _govDelegated,
+        uint256 _bond,
+        uint256 _unbond,
         uint256 _rate,
         uint256 _totalRTokenSupply,
         uint256 _totalProtocolFee,
@@ -134,6 +140,7 @@ contract StakeManager is IRateProvider {
         require(bondedPools.add(_poolAddress), "already exist");
 
         validatorIdsOf[_poolAddress].add(_validatorId);
+        poolInfoOf[_poolAddress] = PoolInfo({era: _era, bond: _bond, unbond: _unbond, active: _govDelegated});
         rate = _rate;
         totalRTokenSupply = _totalRTokenSupply;
         totalProtocolFee = _totalProtocolFee;
@@ -155,6 +162,7 @@ contract StakeManager is IRateProvider {
         uint256 _unstakeFeeCommission,
         uint256 _protocolFeeCommission,
         uint256 _minStakeAmount,
+        uint256 _unbondingDuration,
         uint256 _rateChangeLimit,
         uint256 _eraSeconds,
         uint256 _eraOffset
@@ -165,6 +173,11 @@ contract StakeManager is IRateProvider {
         rateChangeLimit = _rateChangeLimit == 0 ? rateChangeLimit : _rateChangeLimit;
         eraSeconds = _eraSeconds == 0 ? eraSeconds : _eraSeconds;
         eraOffset = _eraOffset == 0 ? eraOffset : _eraOffset;
+
+        if (_unbondingDuration > 0) {
+            unbondingDuration = _unbondingDuration;
+            emit SetUnbondingDuration(_unbondingDuration);
+        }
     }
 
     function addStakePool(address _poolAddress) external onlyAdmin {
@@ -172,6 +185,9 @@ contract StakeManager is IRateProvider {
     }
 
     function rmStakePool(address _poolAddress) external onlyAdmin {
+        PoolInfo memory poolInfo = poolInfoOf[_poolAddress];
+        require(poolInfo.active == 0 && poolInfo.bond == 0 && poolInfo.unbond == 0, "pool not empty");
+
         uint256[] memory validators = getValidatorIdsOf(_poolAddress);
         for (uint256 j = 0; j < validators.length; ++j) {
             require(IStakePool(_poolAddress).getTotalStakeOnValidator(validators[j]) == 0, "delegate not empty");
@@ -233,6 +249,11 @@ contract StakeManager is IRateProvider {
 
         uint256 rTokenAmount = _stakeAmount.mul(1e18).div(rate);
 
+        // update pool
+        PoolInfo storage poolInfo = poolInfoOf[_poolAddress];
+        poolInfo.bond = poolInfo.bond.add(_stakeAmount);
+        poolInfo.active = poolInfo.active.add(_stakeAmount);
+
         // transfer erc20 token
         IERC20(erc20TokenAddress).safeTransferFrom(msg.sender, _poolAddress, _stakeAmount);
 
@@ -240,27 +261,22 @@ contract StakeManager is IRateProvider {
         totalRTokenSupply = totalRTokenSupply.add(rTokenAmount);
         IERC20MintBurn(rTokenAddress).mint(msg.sender, rTokenAmount);
 
-        // cache reward
-        uint256 targetValidator = getValidatorIdsOf(_poolAddress)[0];
-        uint256 newReward = IStakePool(_poolAddress).getLiquidRewards(targetValidator);
-        if (newReward > 0) {
-            undelegateRewardOf[_poolAddress] = undelegateRewardOf[_poolAddress].add(newReward);
-        }
-
-        // delegate
-        IStakePool(_poolAddress).delegate(targetValidator, _stakeAmount);
-
-        emit Stake(msg.sender, _poolAddress, targetValidator, _stakeAmount, rTokenAmount);
+        emit Stake(msg.sender, _poolAddress, _stakeAmount, rTokenAmount);
     }
 
     function unstakeWithPool(address _poolAddress, uint256 _rTokenAmount) public {
         require(_rTokenAmount > 0, "rtoken amount zero");
         require(bondedPools.contains(_poolAddress), "pool not exist");
-        require(unstakesOfUser[msg.sender].length() <= 100, "unstake number limit"); //todo test max limit number
+        require(unstakeOfUser[msg.sender].length() <= 100, "unstake number limit"); //todo test max limit number
 
         uint256 unstakeFee = _rTokenAmount.mul(unstakeFeeCommission).div(1e18);
         uint256 leftRTokenAmount = _rTokenAmount.sub(unstakeFee);
         uint256 tokenAmount = leftRTokenAmount.mul(rate).div(1e18);
+
+        // update pool
+        PoolInfo storage poolInfo = poolInfoOf[_poolAddress];
+        poolInfo.unbond = poolInfo.unbond.add(tokenAmount);
+        poolInfo.active = poolInfo.active.sub(tokenAmount);
 
         // burn rtoken
         IERC20MintBurn(rTokenAddress).burnFrom(msg.sender, leftRTokenAmount);
@@ -270,96 +286,39 @@ contract StakeManager is IRateProvider {
         totalProtocolFee = totalProtocolFee.add(unstakeFee);
         IERC20(rTokenAddress).safeTransferFrom(msg.sender, address(this), unstakeFee);
 
-        // undelegate
-        uint256 startUnstakeIndex = nextUnstakeIndex;
-        undelegate(_poolAddress, getValidatorIdsOf(_poolAddress), tokenAmount);
+        // unstake info
+        unstakeAtIndex[nextUnstakeIndex] = UnstakeInfo({
+            era: currentEra(),
+            pool: _poolAddress,
+            receiver: msg.sender,
+            amount: tokenAmount
+        });
+        unstakeOfUser[msg.sender].add(nextUnstakeIndex);
 
-        emit Unstake(
-            msg.sender,
-            _poolAddress,
-            tokenAmount,
-            _rTokenAmount,
-            leftRTokenAmount,
-            startUnstakeIndex,
-            nextUnstakeIndex.sub(1)
-        );
-    }
+        emit Unstake(msg.sender, _poolAddress, tokenAmount, _rTokenAmount, leftRTokenAmount, nextUnstakeIndex);
 
-    function undelegate(address poolAddress, uint256[] memory validators, uint256 needUndelegate) private {
-        for (uint256 j = 0; j < validators.length; ++j) {
-            if (needUndelegate == 0) {
-                break;
-            }
-
-            uint256 totalStaked = IStakePool(poolAddress).getTotalStakeOnValidator(validators[j]);
-
-            uint256 unbondAmount;
-            if (needUndelegate < totalStaked) {
-                unbondAmount = needUndelegate;
-                needUndelegate = 0;
-            } else {
-                unbondAmount = totalStaked;
-                needUndelegate = needUndelegate.sub(totalStaked);
-            }
-
-            if (unbondAmount > 0) {
-                // cache reward
-                uint256 newReward = IStakePool(poolAddress).getLiquidRewards(validators[j]);
-                if (newReward > 0) {
-                    undelegateRewardOf[poolAddress] = undelegateRewardOf[poolAddress].add(newReward);
-                }
-
-                IStakePool(poolAddress).undelegate(validators[j], unbondAmount);
-
-                // unstake info
-                uint256 willUseUnstakeIndex = nextUnstakeIndex;
-                nextUnstakeIndex = willUseUnstakeIndex.add(1);
-
-                unstakeAtIndex[willUseUnstakeIndex] = UnstakeInfo({
-                    pool: poolAddress,
-                    validator: validators[j],
-                    receiver: msg.sender,
-                    amount: unbondAmount,
-                    nonce: IStakePool(poolAddress).unbondNonces(validators[j])
-                });
-                unstakesOfUser[msg.sender].add(willUseUnstakeIndex);
-            }
-        }
-
-        require(needUndelegate == 0, "undelegate not enough");
+        nextUnstakeIndex = nextUnstakeIndex.add(1);
     }
 
     function withdrawWithPool(address _poolAddress) public {
         uint256 totalWithdrawAmount;
-        uint256 length = unstakesOfUser[msg.sender].length();
+        uint256 length = unstakeOfUser[msg.sender].length();
         uint256[] memory unstakeIndexList = new uint256[](length);
         int256[] memory emitUnstakeIndexList = new int256[](length);
 
         for (uint256 i = 0; i < length; ++i) {
-            unstakeIndexList[i] = unstakesOfUser[msg.sender].at(i);
+            unstakeIndexList[i] = unstakeOfUser[msg.sender].at(i);
         }
-
-        IGovStakeManager govStakeManager = IGovStakeManager(govStakeManagerAddress);
-        uint256 withdrawDelay = govStakeManager.withdrawalDelay();
-        uint256 epoch = govStakeManager.epoch();
-
+        uint256 curEra = currentEra();
         for (uint256 i = 0; i < length; ++i) {
             uint256 unstakeIndex = unstakeIndexList[i];
             UnstakeInfo memory unstakeInfo = unstakeAtIndex[unstakeIndex];
-
-            if (
-                !IStakePool(_poolAddress).unstakeClaimTokens(
-                    unstakeInfo.validator,
-                    unstakeInfo.nonce,
-                    withdrawDelay,
-                    epoch
-                )
-            ) {
+            if (unstakeInfo.era.add(unbondingDuration) > curEra || unstakeInfo.pool != _poolAddress) {
                 emitUnstakeIndexList[i] = -1;
                 continue;
             }
 
-            require(unstakesOfUser[msg.sender].remove(unstakeIndex), "already withdrawed");
+            require(unstakeOfUser[msg.sender].remove(unstakeIndex), "already withdrawed");
 
             totalWithdrawAmount = totalWithdrawAmount.add(unstakeInfo.amount);
             emitUnstakeIndexList[i] = int256(unstakeIndex);
@@ -375,11 +334,11 @@ contract StakeManager is IRateProvider {
     // ----- permissionless
 
     function newEra() external {
-        uint256 era = latestEra.add(1);
-        require(currentEra() >= era, "calEra not match");
+        uint256 _era = latestEra.add(1);
+        require(currentEra() >= _era, "calEra not match");
 
         // update era
-        latestEra = era;
+        latestEra = _era;
 
         uint256 totalNewReward;
         uint256 newTotalActive;
@@ -391,27 +350,64 @@ contract StakeManager is IRateProvider {
 
             // newReward
             uint256 poolNewReward = IStakePool(poolAddress).checkAndWithdrawRewards(validators);
-
-            poolNewReward = poolNewReward.add(undelegateRewardOf[poolAddress]);
-            undelegateRewardOf[poolAddress] = 0;
-
-            uint256 poolBalance = IERC20(erc20TokenAddress).balanceOf(poolAddress);
-            if (poolNewReward > poolBalance) {
-                poolNewReward = poolBalance;
-            }
-
+            emit NewReward(poolAddress, poolNewReward);
             totalNewReward = totalNewReward.add(poolNewReward);
 
-            // delegate new reward
-            if (poolNewReward > 0) {
-                IStakePool(poolAddress).delegate(validators[0], poolNewReward);
+            // unstakeClaimTokens
+            for (uint256 j = 0; j < validators.length; ++j) {
+                uint256 oldClaimedNonce = maxClaimedNonceOf[poolAddress][validators[j]];
+                uint256 newClaimedNonce = IStakePool(poolAddress).unstakeClaimTokens(validators[j], oldClaimedNonce);
+                if (newClaimedNonce > oldClaimedNonce) {
+                    maxClaimedNonceOf[poolAddress][validators[j]] = newClaimedNonce;
 
-                emit DelegateReward(poolAddress, validators[0], poolNewReward);
+                    emit NewClaimedNonce(poolAddress, validators[j], newClaimedNonce);
+                }
+            }
+
+            // bond or unbond
+            PoolInfo memory poolInfo = poolInfoOf[poolAddress];
+            if (poolInfo.bond.add(poolNewReward) > poolInfo.unbond) {
+                uint256 bondAmount = poolInfo.bond.add(poolNewReward).sub(poolInfo.unbond);
+                IStakePool(poolAddress).delegate(validators[0], bondAmount);
+
+                emit Delegate(poolAddress, validators[0], bondAmount);
+            } else if (poolInfo.bond.add(poolNewReward) < poolInfo.unbond) {
+                uint256 needUndelegate = poolInfo.unbond.sub(poolInfo.bond.add(poolNewReward));
+
+                for (uint256 j = 0; j < validators.length; ++j) {
+                    if (needUndelegate == 0) {
+                        break;
+                    }
+                    uint256 totalStaked = IStakePool(poolAddress).getTotalStakeOnValidator(validators[j]);
+
+                    uint256 unbondAmount;
+                    if (needUndelegate < totalStaked) {
+                        unbondAmount = needUndelegate;
+                        needUndelegate = 0;
+                    } else {
+                        unbondAmount = totalStaked;
+                        needUndelegate = needUndelegate.sub(totalStaked);
+                    }
+
+                    if (unbondAmount > 0) {
+                        IStakePool(poolAddress).undelegate(validators[j], unbondAmount);
+
+                        emit Undelegate(poolAddress, validators[j], unbondAmount);
+                    }
+                }
             }
 
             // cal total active
             uint256 newPoolActive = IStakePool(poolAddress).getTotalStakeOnValidators(validators);
             newTotalActive = newTotalActive.add(newPoolActive);
+
+            // update pool state
+            poolInfo.era = latestEra;
+            poolInfo.active = newPoolActive;
+            poolInfo.bond = 0;
+            poolInfo.unbond = 0;
+
+            poolInfoOf[poolAddress] = poolInfo;
         }
 
         // cal protocol fee
@@ -430,8 +426,8 @@ contract StakeManager is IRateProvider {
         require(rateChange.mul(1e18).div(rate) < rateChangeLimit, "rate change over limit");
 
         rate = newRate;
-        eraRate[era] = newRate;
+        eraRate[_era] = newRate;
 
-        emit ExecuteNewEra(era, newRate);
+        emit ExecuteNewEra(_era, newRate);
     }
 }

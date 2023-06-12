@@ -11,12 +11,7 @@ interface IStakePool {
 
     function redelegate(uint256 fromValidatorId, uint256 toValidatorId, uint256 amount) external;
 
-    function unstakeClaimTokens(
-        uint256 validator,
-        uint256 claimedNonce,
-        uint256 withdrawDelay,
-        uint256 epoch
-    ) external returns (bool);
+    function unstakeClaimTokens(uint256 validator, uint256 claimedNonce) external returns (uint256);
 
     function withdrawForStaker(address erc20TokenAddress, address staker, uint256 amount) external;
 
@@ -25,8 +20,4 @@ interface IStakePool {
     function getTotalStakeOnValidator(uint256 validator) external view returns (uint256);
 
     function getTotalStakeOnValidators(uint256[] calldata validator) external view returns (uint256);
-
-    function getLiquidRewards(uint256 validator) external view returns (uint256);
-
-    function unbondNonces(uint256 validator) external view returns (uint256);
 }

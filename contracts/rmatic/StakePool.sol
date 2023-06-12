@@ -91,26 +91,32 @@ contract StakePool is IStakePool {
 
     function unstakeClaimTokens(
         uint256 _validator,
-        uint256 _nonce,
-        uint256 _withdrawDelay,
-        uint256 _epoch
-    ) external override onlyStakeManager returns (bool) {
+        uint256 _claimedNonce
+    ) external override onlyStakeManager returns (uint256) {
         IGovStakeManager govStakeManager = IGovStakeManager(govStakeManagerAddress());
         address valAddress = govStakeManager.getValidatorContract(_validator);
-        IValidatorShare.DelegatorUnbond memory unbond = IValidatorShare(valAddress).unbonds_new(address(this), _nonce);
+        uint256 willClaimedNonce = _claimedNonce.add(1);
+        IValidatorShare.DelegatorUnbond memory unbond = IValidatorShare(valAddress).unbonds_new(
+            address(this),
+            willClaimedNonce
+        );
 
-        require(unbond.withdrawEpoch != 0, "unbond not exist");
+        if (unbond.withdrawEpoch == 0) {
+            return _claimedNonce;
+        }
         if (unbond.shares == 0) {
-            return true;
+            return willClaimedNonce;
         }
 
-        if (unbond.withdrawEpoch.add(_withdrawDelay) > _epoch) {
-            return false;
+        uint256 withdrawDelay = govStakeManager.withdrawalDelay();
+        uint256 epoch = govStakeManager.epoch();
+        if (unbond.withdrawEpoch.add(withdrawDelay) > epoch) {
+            return _claimedNonce;
         }
 
-        IValidatorShare(valAddress).unstakeClaimTokens_new(_nonce);
+        IValidatorShare(valAddress).unstakeClaimTokens_new(willClaimedNonce);
 
-        return true;
+        return willClaimedNonce;
     }
 
     function withdrawForStaker(
@@ -150,15 +156,5 @@ contract StakePool is IStakePool {
             totalStake = totalStake.add(stake);
         }
         return totalStake;
-    }
-
-    function getLiquidRewards(uint256 _validator) external view override returns (uint256) {
-        address valAddress = IGovStakeManager(govStakeManagerAddress()).getValidatorContract(_validator);
-        return IValidatorShare(valAddress).getLiquidRewards(address(this));
-    }
-
-    function unbondNonces(uint256 _validator) external view override returns (uint256) {
-        address valAddress = IGovStakeManager(govStakeManagerAddress()).getValidatorContract(_validator);
-        return IValidatorShare(valAddress).unbondNonces(address(this));
     }
 }
