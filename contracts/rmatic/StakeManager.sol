@@ -367,13 +367,14 @@ contract StakeManager is IRateProvider {
 
             // bond or unbond
             PoolInfo memory poolInfo = poolInfoOf[poolAddress];
-            if (poolInfo.bond.add(poolNewReward) > poolInfo.unbond) {
-                uint256 bondAmount = poolInfo.bond.add(poolNewReward).sub(poolInfo.unbond);
-                IStakePool(poolAddress).delegate(validators[0], bondAmount);
+            uint256 poolBondAndNewReward = poolInfo.bond.add(poolNewReward);
+            if (poolBondAndNewReward > poolInfo.unbond) {
+                uint256 needDelegate = poolBondAndNewReward.sub(poolInfo.unbond);
+                IStakePool(poolAddress).delegate(validators[0], needDelegate);
 
-                emit Delegate(poolAddress, validators[0], bondAmount);
-            } else if (poolInfo.bond.add(poolNewReward) < poolInfo.unbond) {
-                uint256 needUndelegate = poolInfo.unbond.sub(poolInfo.bond.add(poolNewReward));
+                emit Delegate(poolAddress, validators[0], needDelegate);
+            } else if (poolBondAndNewReward < poolInfo.unbond) {
+                uint256 needUndelegate = poolInfo.unbond.sub(poolBondAndNewReward);
 
                 for (uint256 j = 0; j < validators.length; ++j) {
                     if (needUndelegate == 0) {
@@ -396,6 +397,7 @@ contract StakeManager is IRateProvider {
                         emit Undelegate(poolAddress, validators[j], unbondAmount);
                     }
                 }
+                require(needUndelegate == 0, "undelegate not enough");
             }
 
             // cal total active
