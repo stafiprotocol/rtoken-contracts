@@ -34,13 +34,13 @@ contract StakeManager is IRateProvider {
     EnumerableSet.AddressSet bondedPools;
     mapping(address => PoolInfo) public poolInfoOf;
     mapping(address => EnumerableSet.UintSet) validatorIdsOf;
-    mapping(address => mapping(uint256 => uint256)) maxClaimedNonceOf; // pool => validator Id => max claimed nonce
+    mapping(address => mapping(uint256 => uint256)) public maxClaimedNonceOf; // pool => validator Id => max claimed nonce
     mapping(uint256 => uint256) public eraRate;
 
     // unstake info
     uint256 public nextUnstakeIndex;
     mapping(uint256 => UnstakeInfo) public unstakeAtIndex;
-    mapping(address => EnumerableSet.UintSet) unstakeOfUser;
+    mapping(address => EnumerableSet.UintSet) unstakesOfUser;
 
     // events
     event Stake(address staker, address poolAddress, uint256 tokenAmount, uint256 rTokenAmount);
@@ -112,9 +112,9 @@ contract StakeManager is IRateProvider {
     }
 
     function getUnstakeIndexListOf(address _staker) external view returns (uint256[] memory unstakeIndexList) {
-        unstakeIndexList = new uint256[](unstakeOfUser[_staker].length());
-        for (uint256 i = 0; i < unstakeOfUser[_staker].length(); ++i) {
-            unstakeIndexList[i] = unstakeOfUser[_staker].at(i);
+        unstakeIndexList = new uint256[](unstakesOfUser[_staker].length());
+        for (uint256 i = 0; i < unstakesOfUser[_staker].length(); ++i) {
+            unstakeIndexList[i] = unstakesOfUser[_staker].at(i);
         }
         return unstakeIndexList;
     }
@@ -267,7 +267,7 @@ contract StakeManager is IRateProvider {
     function unstakeWithPool(address _poolAddress, uint256 _rTokenAmount) public {
         require(_rTokenAmount > 0, "rtoken amount zero");
         require(bondedPools.contains(_poolAddress), "pool not exist");
-        require(unstakeOfUser[msg.sender].length() <= 100, "unstake number limit"); //todo test max limit number
+        require(unstakesOfUser[msg.sender].length() <= 100, "unstake number limit"); //todo test max limit number
 
         uint256 unstakeFee = _rTokenAmount.mul(unstakeFeeCommission).div(1e18);
         uint256 leftRTokenAmount = _rTokenAmount.sub(unstakeFee);
@@ -287,27 +287,28 @@ contract StakeManager is IRateProvider {
         IERC20(rTokenAddress).safeTransferFrom(msg.sender, address(this), unstakeFee);
 
         // unstake info
-        unstakeAtIndex[nextUnstakeIndex] = UnstakeInfo({
+        uint256 willUseUnstakeIndex = nextUnstakeIndex;
+        nextUnstakeIndex = willUseUnstakeIndex.add(1);
+
+        unstakeAtIndex[willUseUnstakeIndex] = UnstakeInfo({
             era: currentEra(),
             pool: _poolAddress,
             receiver: msg.sender,
             amount: tokenAmount
         });
-        unstakeOfUser[msg.sender].add(nextUnstakeIndex);
+        unstakesOfUser[msg.sender].add(willUseUnstakeIndex);
 
-        emit Unstake(msg.sender, _poolAddress, tokenAmount, _rTokenAmount, leftRTokenAmount, nextUnstakeIndex);
-
-        nextUnstakeIndex = nextUnstakeIndex.add(1);
+        emit Unstake(msg.sender, _poolAddress, tokenAmount, _rTokenAmount, leftRTokenAmount, willUseUnstakeIndex);
     }
 
     function withdrawWithPool(address _poolAddress) public {
         uint256 totalWithdrawAmount;
-        uint256 length = unstakeOfUser[msg.sender].length();
+        uint256 length = unstakesOfUser[msg.sender].length();
         uint256[] memory unstakeIndexList = new uint256[](length);
         int256[] memory emitUnstakeIndexList = new int256[](length);
 
         for (uint256 i = 0; i < length; ++i) {
-            unstakeIndexList[i] = unstakeOfUser[msg.sender].at(i);
+            unstakeIndexList[i] = unstakesOfUser[msg.sender].at(i);
         }
         uint256 curEra = currentEra();
         for (uint256 i = 0; i < length; ++i) {
@@ -318,7 +319,7 @@ contract StakeManager is IRateProvider {
                 continue;
             }
 
-            require(unstakeOfUser[msg.sender].remove(unstakeIndex), "already withdrawed");
+            require(unstakesOfUser[msg.sender].remove(unstakeIndex), "already withdrawed");
 
             totalWithdrawAmount = totalWithdrawAmount.add(unstakeInfo.amount);
             emitUnstakeIndexList[i] = int256(unstakeIndex);
