@@ -140,7 +140,7 @@ contract StakeManager is IRateProvider {
         require(bondedPools.add(_poolAddress), "already exist");
 
         validatorIdsOf[_poolAddress].add(_validatorId);
-        poolInfoOf[_poolAddress] = PoolInfo({era: _era, bond: _bond, unbond: _unbond, active: _govDelegated});
+        poolInfoOf[_poolAddress] = PoolInfo({bond: _bond, unbond: _unbond, active: _govDelegated});
         rate = _rate;
         totalRTokenSupply = _totalRTokenSupply;
         totalProtocolFee = _totalProtocolFee;
@@ -403,7 +403,6 @@ contract StakeManager is IRateProvider {
             newTotalActive = newTotalActive.add(newPoolActive);
 
             // update pool state
-            poolInfo.era = latestEra;
             poolInfo.active = newPoolActive;
             poolInfo.bond = 0;
             poolInfo.unbond = 0;
