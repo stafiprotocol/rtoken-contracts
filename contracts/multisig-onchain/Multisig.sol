@@ -107,14 +107,13 @@ contract Multisig {
     ) external onlyVoter {
         Proposal memory newProposal = Proposal({
             status: ProposalStatus.Active,
-            yesVotes: 0,
+            yesVotes: _voterBit(msg.sender).toUint16(),
             yesVotesTotal: 1,
             to: _to,
             value: _value,
             methodSignature: _methodSignature,
             encodedParams: _encodedParams
         });
-        newProposal.yesVotes = (newProposal.yesVotes | _voterBit(msg.sender)).toUint16();
 
         proposals[nextProposalId] = newProposal;
         nextProposalId = nextProposalId.add(1);
