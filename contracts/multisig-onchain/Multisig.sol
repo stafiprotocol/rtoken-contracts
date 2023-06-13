@@ -64,7 +64,7 @@ contract Multisig {
 
     // ---getter---
 
-    function hasVoted(uint256 _proposalId, address _voter) public view returns (bool) {
+    function hasVoted(uint256 _proposalId, address _voter) external view returns (bool) {
         Proposal storage proposal = proposals[_proposalId];
         return _hasVoted(proposal.yesVotes, _voter);
     }
@@ -78,14 +78,14 @@ contract Multisig {
 
     // ---settings---
 
-    function addVoter(address _voter) public onlyMultisig {
+    function addVoter(address _voter) external onlyMultisig {
         require(voters.length() < 16, "too much voters");
         require(threshold > (voters.length().add(1)).div(2), "invalid threshold");
 
         voters.add(_voter);
     }
 
-    function removeVoter(address _voter) public onlyMultisig {
+    function removeVoter(address _voter) external onlyMultisig {
         require(voters.length() > threshold, "voters not enough");
 
         voters.remove(_voter);
@@ -129,7 +129,7 @@ contract Multisig {
         proposal.yesVotes = (proposal.yesVotes | _voterBit(msg.sender)).toUint16();
         proposal.yesVotesTotal++;
 
-        if (proposal.yesVotes >= threshold) {
+        if (proposal.yesVotesTotal >= threshold) {
             bytes memory callData;
             if (bytes(proposal.methodSignature).length != 0) {
                 callData = abi.encodePacked(bytes4(keccak256(bytes(proposal.methodSignature))), proposal.encodedParams);
@@ -154,7 +154,7 @@ contract Multisig {
         return uint256(1) << _getVoterIndex(_voter).sub(1);
     }
 
-    function _getVoterIndex(address _voter) public view returns (uint256) {
+    function _getVoterIndex(address _voter) private view returns (uint256) {
         return voters._inner._indexes[bytes32(uint256(_voter))];
     }
 }
