@@ -20,10 +20,10 @@ contract Multisig {
         ProposalStatus status;
         uint16 yesVotes; // bitmap, 16 maximum votes
         uint8 yesVotesTotal;
+        address proposer;
+        uint256 proposedTime;
         address to;
-        address submitter;
         uint256 value;
-        uint256 startTime;
         string methodSignature;
         bytes encodedParams;
     }
@@ -117,12 +117,12 @@ contract Multisig {
             status: ProposalStatus.Active,
             yesVotes: _voterBit(msg.sender).toUint16(),
             yesVotesTotal: 1,
+            proposer: msg.sender,
+            proposedTime: block.timestamp,
             to: _to,
-            submitter: msg.sender,
             value: _value,
             methodSignature: _methodSignature,
-            encodedParams: _encodedParams,
-            startTime: block.timestamp
+            encodedParams: _encodedParams
         });
         nextProposalId = nextProposalId.add(1);
     }
@@ -131,7 +131,7 @@ contract Multisig {
         Proposal storage proposal = proposals[_proposalId];
 
         require(proposal.status == ProposalStatus.Active, "not active");
-        require(proposal.startTime.add(proposalLifetime) > block.timestamp, "expired");
+        require(proposal.proposedTime.add(proposalLifetime) > block.timestamp, "expired");
         require(!_hasVoted(proposal.yesVotes, msg.sender), "already voted");
 
         proposal.yesVotes = (proposal.yesVotes | _voterBit(msg.sender)).toUint16();
@@ -156,7 +156,7 @@ contract Multisig {
         Proposal storage proposal = proposals[_proposalId];
 
         require(proposal.status == ProposalStatus.Active, "not active");
-        require(proposal.submitter == msg.sender, "not submitter");
+        require(proposal.proposer == msg.sender, "not proposer");
 
         proposal.status = ProposalStatus.Inactive;
     }
