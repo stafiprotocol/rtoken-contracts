@@ -21,30 +21,34 @@ contract Multisig {
         uint16 yesVotes; // bitmap, 16 maximum votes
         uint8 yesVotesTotal;
         address to;
+        address submitter;
         uint256 value;
+        uint256 startTime;
         string methodSignature;
         bytes encodedParams;
     }
 
-    uint8 public threshold;
+    uint256 public threshold;
     EnumerableSet.AddressSet voters;
 
+    uint256 public proposalLifetime;
     uint256 public nextProposalId;
     mapping(uint256 => Proposal) public proposals;
 
     event ProposalExecuted(uint256 indexed proposalId);
 
-    constructor(address[] memory _voters, uint256 _initialThreshold) {
+    constructor(address[] memory _voters, uint256 _initialThreshold, uint256 _proposalLifetime) {
         require(
             _initialThreshold > 1 && _initialThreshold > _voters.length.div(2) && _voters.length >= _initialThreshold,
             "invalid threshold"
         );
         require(_voters.length <= 16, "too much voters");
 
-        threshold = _initialThreshold.toUint8();
+        threshold = _initialThreshold;
         for (uint256 i; i < _voters.length; ++i) {
             voters.add(_voters[i]);
         }
+        proposalLifetime = _proposalLifetime;
     }
 
     // ---modifier---
@@ -94,10 +98,14 @@ contract Multisig {
     function changeThreshold(uint256 _newThreshold) external onlyMultisig {
         require(voters.length() >= _newThreshold && _newThreshold > voters.length().div(2), "invalid threshold");
 
-        threshold = _newThreshold.toUint8();
+        threshold = _newThreshold;
     }
 
-    // ---vote---
+    function setProposalLifetime(uint256 _proposalLifetime) external onlyMultisig {
+        proposalLifetime = _proposalLifetime;
+    }
+
+    // ---proposal---
 
     function submitProposal(
         address _to,
@@ -105,24 +113,25 @@ contract Multisig {
         string calldata _methodSignature,
         bytes calldata _encodedParams
     ) external onlyVoter {
-        Proposal memory newProposal = Proposal({
+        proposals[nextProposalId] = Proposal({
             status: ProposalStatus.Active,
             yesVotes: _voterBit(msg.sender).toUint16(),
             yesVotesTotal: 1,
             to: _to,
+            submitter: msg.sender,
             value: _value,
             methodSignature: _methodSignature,
-            encodedParams: _encodedParams
+            encodedParams: _encodedParams,
+            startTime: block.timestamp
         });
-
-        proposals[nextProposalId] = newProposal;
         nextProposalId = nextProposalId.add(1);
     }
 
     function voteProposal(uint256 _proposalId) external onlyVoter {
         Proposal storage proposal = proposals[_proposalId];
 
-        require(proposal.status == ProposalStatus.Active, "proposal not active");
+        require(proposal.status == ProposalStatus.Active, "not active");
+        require(proposal.startTime.add(proposalLifetime) > block.timestamp, "expired");
         require(!_hasVoted(proposal.yesVotes, msg.sender), "already voted");
 
         proposal.yesVotes = (proposal.yesVotes | _voterBit(msg.sender)).toUint16();
@@ -141,6 +150,15 @@ contract Multisig {
 
             emit ProposalExecuted(_proposalId);
         }
+    }
+
+    function cancelProposal(uint256 _proposalId) external {
+        Proposal storage proposal = proposals[_proposalId];
+
+        require(proposal.status == ProposalStatus.Active, "not active");
+        require(proposal.submitter == msg.sender, "not submitter");
+
+        proposal.status = ProposalStatus.Inactive;
     }
 
     // ---helper---
