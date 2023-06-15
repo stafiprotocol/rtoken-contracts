@@ -57,12 +57,12 @@ contract Multisig {
     // ---modifier---
 
     modifier onlyVoter() {
-        require(voters.contains(msg.sender));
+        require(voters.contains(msg.sender), "not voter");
         _;
     }
 
     modifier onlyMultisig() {
-        require(msg.sender == address(this), "caller is not multisig");
+        require(msg.sender == address(this), "not multisig");
         _;
     }
 
