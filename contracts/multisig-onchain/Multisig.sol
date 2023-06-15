@@ -10,6 +10,8 @@ contract Multisig {
     using EnumerableSet for EnumerableSet.AddressSet;
     using SafeMath for uint256;
 
+    uint256 public constant MIN_PROPOSAL_LIFETIME = 1 days;
+
     enum ProposalStatus {
         Inactive,
         Active,
@@ -43,6 +45,7 @@ contract Multisig {
             "invalid threshold"
         );
         require(_voters.length <= 16, "too much voters");
+        require(_proposalLifetime >= MIN_PROPOSAL_LIFETIME, "invalid lifetime");
 
         threshold = _initialThreshold;
         for (uint256 i; i < _voters.length; ++i) {
@@ -102,6 +105,8 @@ contract Multisig {
     }
 
     function setProposalLifetime(uint256 _proposalLifetime) external onlyMultisig {
+        require(_proposalLifetime >= MIN_PROPOSAL_LIFETIME, "invalid lifetime");
+
         proposalLifetime = _proposalLifetime;
     }
 
