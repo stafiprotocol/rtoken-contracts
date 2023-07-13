@@ -70,6 +70,8 @@ contract StakeManager is IRateProvider {
     // init
     function init(address _rTokenAddress, address _erc20TokenAddress, uint256 _unbondingDuration) public {
         require(admin == address(0), "already init");
+        require(_rTokenAddress != address(0), "zero rtoken address");
+        require(_erc20TokenAddress != address(0), "zero token address");
         require(_unbondingDuration <= MAX_UNBONDING_DURATION, "max unbonding duration limit");
 
         admin = msg.sender;
@@ -144,8 +146,11 @@ contract StakeManager is IRateProvider {
         uint256 _totalProtocolFee,
         uint256 _era
     ) external onlyAdmin {
-        require(_rate > 0, "zero _rate");
         require(rate == 0, "already migrate");
+        require(_poolAddress != address(0), "zero pool address");
+        require(_rate > 0, "zero rate");
+        require(_totalRTokenSupply > 0, "zero rtoken supply");
+        require(_totalProtocolFee > 0, "zero total fee");
         require(bondedPools.add(_poolAddress), "already exist");
 
         validatorIdsOf[_poolAddress].add(_validatorId);
@@ -200,6 +205,7 @@ contract StakeManager is IRateProvider {
     }
 
     function addStakePool(address _poolAddress) external onlyAdmin {
+        require(_poolAddress != address(0), "zero pool address");
         require(bondedPools.add(_poolAddress), "pool exist");
     }
 
