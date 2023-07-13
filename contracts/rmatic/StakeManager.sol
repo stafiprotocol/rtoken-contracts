@@ -15,6 +15,11 @@ contract StakeManager is IRateProvider {
     using EnumerableSet for EnumerableSet.UintSet;
 
     uint256 public constant UNBOND_TIMES_LIMIT = 100;
+    uint256 public constant MAX_UNSTAKE_FEE_COMMISSION = 1e16;
+    uint256 public constant MAX_PROTOCOL_FEE_COMMISSION = 2 * 1e17;
+    uint256 public constant MAX_RATE_CHANGE_LIMIT = 1e15;
+    uint256 public constant MAX_UNBONDING_DURATION = 32;
+    uint256 public constant MAX_ERA_SECONDS = 172800;
 
     address public admin;
     address public delegationBalancer;
@@ -65,6 +70,7 @@ contract StakeManager is IRateProvider {
     // init
     function init(address _rTokenAddress, address _erc20TokenAddress, uint256 _unbondingDuration) public {
         require(admin == address(0), "already init");
+        require(_unbondingDuration <= MAX_UNBONDING_DURATION, "max unbonding duration limit");
 
         admin = msg.sender;
         delegationBalancer = msg.sender;
@@ -73,7 +79,7 @@ contract StakeManager is IRateProvider {
         unbondingDuration = _unbondingDuration;
 
         minStakeAmount = 1e12;
-        rateChangeLimit = 1e15;
+        rateChangeLimit = 5 * 1e14;
         unstakeFeeCommission = 2e15;
         protocolFeeCommission = 1e17;
         eraSeconds = 86400;
@@ -138,6 +144,7 @@ contract StakeManager is IRateProvider {
         uint256 _totalProtocolFee,
         uint256 _era
     ) external onlyAdmin {
+        require(_rate > 0, "zero _rate");
         require(rate == 0, "already migrate");
         require(bondedPools.add(_poolAddress), "already exist");
 
@@ -169,6 +176,16 @@ contract StakeManager is IRateProvider {
         uint256 _eraSeconds,
         uint256 _eraOffset
     ) external onlyAdmin {
+        require(_unstakeFeeCommission <= MAX_UNSTAKE_FEE_COMMISSION, "max unstake fee limit");
+        require(_protocolFeeCommission <= MAX_PROTOCOL_FEE_COMMISSION, "max protocol fee limit");
+        require(_unbondingDuration <= MAX_UNBONDING_DURATION, "max unbonding duration limit");
+        require(_rateChangeLimit <= MAX_RATE_CHANGE_LIMIT, "max rate change limit");
+        require(_eraSeconds <= MAX_ERA_SECONDS, "max era seconds limit");
+
+        if (_eraSeconds != 0 || _eraOffset != 0) {
+            require(currentEra() == block.timestamp.div(_eraSeconds).sub(_eraOffset), "wrong era parameters");
+        }
+
         unstakeFeeCommission = _unstakeFeeCommission == 1 ? unstakeFeeCommission : _unstakeFeeCommission;
         protocolFeeCommission = _protocolFeeCommission == 1 ? protocolFeeCommission : _protocolFeeCommission;
         minStakeAmount = _minStakeAmount == 0 ? minStakeAmount : _minStakeAmount;
