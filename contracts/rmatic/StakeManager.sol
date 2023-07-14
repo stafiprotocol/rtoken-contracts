@@ -307,9 +307,11 @@ contract StakeManager is IRateProvider {
         IERC20MintBurn(rTokenAddress).burnFrom(msg.sender, leftRTokenAmount);
         totalRTokenSupply = totalRTokenSupply.sub(leftRTokenAmount);
 
-        // protocol fee
-        totalProtocolFee = totalProtocolFee.add(unstakeFee);
-        IERC20(rTokenAddress).safeTransferFrom(msg.sender, address(this), unstakeFee);
+        if (unstakeFee > 0) {
+            // protocol fee
+            totalProtocolFee = totalProtocolFee.add(unstakeFee);
+            IERC20(rTokenAddress).safeTransferFrom(msg.sender, address(this), unstakeFee);
+        }
 
         // unstake info
         uint256 willUseUnstakeIndex = nextUnstakeIndex;
@@ -440,11 +442,12 @@ contract StakeManager is IRateProvider {
         // cal protocol fee
         if (totalNewReward > 0) {
             uint256 rTokenProtocolFee = totalNewReward.mul(protocolFeeCommission).div(rate);
-            totalProtocolFee = totalProtocolFee.add(rTokenProtocolFee);
-
-            // mint rtoken
-            totalRTokenSupply = totalRTokenSupply.add(rTokenProtocolFee);
-            IERC20MintBurn(rTokenAddress).mint(address(this), rTokenProtocolFee);
+            if (rTokenProtocolFee > 0) {
+                totalProtocolFee = totalProtocolFee.add(rTokenProtocolFee);
+                // mint rtoken
+                totalRTokenSupply = totalRTokenSupply.add(rTokenProtocolFee);
+                IERC20MintBurn(rTokenAddress).mint(address(this), rTokenProtocolFee);
+            }
         }
 
         // update rate
