@@ -15,6 +15,11 @@ contract StakeManager is IRateProvider {
     using EnumerableSet for EnumerableSet.UintSet;
 
     uint256 public constant UNBOND_TIMES_LIMIT = 100;
+    uint256 public constant MAX_UNSTAKE_FEE_COMMISSION = 1e16;
+    uint256 public constant MAX_PROTOCOL_FEE_COMMISSION = 2 * 1e17;
+    uint256 public constant MAX_RATE_CHANGE_LIMIT = 1e15;
+    uint256 public constant MAX_UNBONDING_DURATION = 32;
+    uint256 public constant MAX_ERA_SECONDS = 172800;
 
     address public admin;
     address public delegationBalancer;
@@ -65,6 +70,9 @@ contract StakeManager is IRateProvider {
     // init
     function init(address _rTokenAddress, address _erc20TokenAddress, uint256 _unbondingDuration) public {
         require(admin == address(0), "already init");
+        require(_rTokenAddress != address(0), "zero rtoken address");
+        require(_erc20TokenAddress != address(0), "zero token address");
+        require(_unbondingDuration <= MAX_UNBONDING_DURATION, "max unbonding duration limit");
 
         admin = msg.sender;
         delegationBalancer = msg.sender;
@@ -73,7 +81,7 @@ contract StakeManager is IRateProvider {
         unbondingDuration = _unbondingDuration;
 
         minStakeAmount = 1e12;
-        rateChangeLimit = 1e15;
+        rateChangeLimit = 5 * 1e14;
         unstakeFeeCommission = 2e15;
         protocolFeeCommission = 1e17;
         eraSeconds = 86400;
@@ -139,6 +147,10 @@ contract StakeManager is IRateProvider {
         uint256 _era
     ) external onlyAdmin {
         require(rate == 0, "already migrate");
+        require(_poolAddress != address(0), "zero pool address");
+        require(_rate > 0, "zero rate");
+        require(_totalRTokenSupply > 0, "zero rtoken supply");
+        require(_totalProtocolFee > 0, "zero total fee");
         require(bondedPools.add(_poolAddress), "already exist");
 
         validatorIdsOf[_poolAddress].add(_validatorId);
@@ -169,6 +181,16 @@ contract StakeManager is IRateProvider {
         uint256 _eraSeconds,
         uint256 _eraOffset
     ) external onlyAdmin {
+        require(_unstakeFeeCommission <= MAX_UNSTAKE_FEE_COMMISSION, "max unstake fee limit");
+        require(_protocolFeeCommission <= MAX_PROTOCOL_FEE_COMMISSION, "max protocol fee limit");
+        require(_unbondingDuration <= MAX_UNBONDING_DURATION, "max unbonding duration limit");
+        require(_rateChangeLimit <= MAX_RATE_CHANGE_LIMIT, "max rate change limit");
+        require(_eraSeconds <= MAX_ERA_SECONDS, "max era seconds limit");
+
+        if (_eraSeconds != 0 || _eraOffset != 0) {
+            require(currentEra() == block.timestamp.div(_eraSeconds).sub(_eraOffset), "wrong era parameters");
+        }
+
         unstakeFeeCommission = _unstakeFeeCommission == 1 ? unstakeFeeCommission : _unstakeFeeCommission;
         protocolFeeCommission = _protocolFeeCommission == 1 ? protocolFeeCommission : _protocolFeeCommission;
         minStakeAmount = _minStakeAmount == 0 ? minStakeAmount : _minStakeAmount;
@@ -183,6 +205,7 @@ contract StakeManager is IRateProvider {
     }
 
     function addStakePool(address _poolAddress) external onlyAdmin {
+        require(_poolAddress != address(0), "zero pool address");
         require(bondedPools.add(_poolAddress), "pool exist");
     }
 
@@ -284,9 +307,11 @@ contract StakeManager is IRateProvider {
         IERC20MintBurn(rTokenAddress).burnFrom(msg.sender, leftRTokenAmount);
         totalRTokenSupply = totalRTokenSupply.sub(leftRTokenAmount);
 
-        // protocol fee
-        totalProtocolFee = totalProtocolFee.add(unstakeFee);
-        IERC20(rTokenAddress).safeTransferFrom(msg.sender, address(this), unstakeFee);
+        if (unstakeFee > 0) {
+            // protocol fee
+            totalProtocolFee = totalProtocolFee.add(unstakeFee);
+            IERC20(rTokenAddress).safeTransferFrom(msg.sender, address(this), unstakeFee);
+        }
 
         // unstake info
         uint256 willUseUnstakeIndex = nextUnstakeIndex;
@@ -417,11 +442,12 @@ contract StakeManager is IRateProvider {
         // cal protocol fee
         if (totalNewReward > 0) {
             uint256 rTokenProtocolFee = totalNewReward.mul(protocolFeeCommission).div(rate);
-            totalProtocolFee = totalProtocolFee.add(rTokenProtocolFee);
-
-            // mint rtoken
-            totalRTokenSupply = totalRTokenSupply.add(rTokenProtocolFee);
-            IERC20MintBurn(rTokenAddress).mint(address(this), rTokenProtocolFee);
+            if (rTokenProtocolFee > 0) {
+                totalProtocolFee = totalProtocolFee.add(rTokenProtocolFee);
+                // mint rtoken
+                totalRTokenSupply = totalRTokenSupply.add(rTokenProtocolFee);
+                IERC20MintBurn(rTokenAddress).mint(address(this), rTokenProtocolFee);
+            }
         }
 
         // update rate
