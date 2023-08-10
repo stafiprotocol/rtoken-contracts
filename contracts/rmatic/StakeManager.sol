@@ -49,6 +49,8 @@ contract StakeManager is IRateProvider {
     mapping(uint256 => UnstakeInfo) public unstakeAtIndex;
     mapping(address => EnumerableSet.UintSet) unstakesOfUser;
 
+    mapping(address => uint256) public redelegateRewardOfPool;
+
     // events
     event Stake(address staker, address poolAddress, uint256 tokenAmount, uint256 rTokenAmount);
     event Unstake(
@@ -247,6 +249,13 @@ contract StakeManager is IRateProvider {
             validatorIdsOf[_poolAddress].add(_dstValidatorId);
         }
 
+        // withdraw reward
+        uint256[] memory validators = new uint256[](1);
+        validators[0] = _srcValidatorId;
+        redelegateRewardOfPool[_poolAddress] = redelegateRewardOfPool[_poolAddress].add(
+            IStakePool(_poolAddress).checkAndWithdrawRewards(validators)
+        );
+
         IStakePool(_poolAddress).redelegate(_srcValidatorId, _dstValidatorId, _amount);
 
         if (IStakePool(_poolAddress).getTotalStakeOnValidator(_srcValidatorId) == 0) {
@@ -378,6 +387,11 @@ contract StakeManager is IRateProvider {
 
             // newReward
             uint256 poolNewReward = IStakePool(poolAddress).checkAndWithdrawRewards(validators);
+            if (redelegateRewardOfPool[poolAddress] > 0) {
+                poolNewReward = poolNewReward.add(redelegateRewardOfPool[poolAddress]);
+                redelegateRewardOfPool[poolAddress] = 0;
+            }
+
             emit NewReward(poolAddress, poolNewReward);
             totalNewReward = totalNewReward.add(poolNewReward);
 
