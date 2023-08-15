@@ -151,7 +151,7 @@ contract Multisig {
             (bool success, ) = proposal.to.call{value: proposal.value}(callData);
             require(success, "call failed");
 
-            proposal.status == ProposalStatus.Executed;
+            proposal.status = ProposalStatus.Executed;
 
             emit ProposalExecuted(_proposalId);
         }
