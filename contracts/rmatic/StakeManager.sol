@@ -233,7 +233,8 @@ contract StakeManager is IRateProvider {
         IERC20(rTokenAddress).safeTransfer(_to, IERC20(rTokenAddress).balanceOf(address(this)));
     }
 
-    function setClaimedNonce(address _pool, uint256 _valId, uint256 _nonce) external onlyAdmin {
+    function migrateMaxClaimedNonce(address _pool, uint256 _valId, uint256 _nonce) external onlyAdmin {
+        require(maxClaimedNonceOf[_pool][_valId] == 0, "already migrate");
         maxClaimedNonceOf[_pool][_valId] = _nonce;
     }
 
