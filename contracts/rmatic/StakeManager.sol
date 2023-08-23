@@ -235,6 +235,7 @@ contract StakeManager is IRateProvider {
 
     function migrateMaxClaimedNonce(address _pool, uint256 _valId, uint256 _nonce) external onlyAdmin {
         require(maxClaimedNonceOf[_pool][_valId] == 0, "already migrate");
+
         maxClaimedNonceOf[_pool][_valId] = _nonce;
     }
 
