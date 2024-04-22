@@ -56,6 +56,8 @@ contract StakeManager is Multisig, IRateProvider {
 
     address public delegationBalancer;
 
+    bool public stakeSwitch;
+
     // events
     event Stake(address staker, address poolAddress, uint256 tokenAmount, uint256 rTokenAmount);
     event Unstake(
@@ -258,6 +260,23 @@ contract StakeManager is Multisig, IRateProvider {
         require(success, "failed to withdraw");
     }
 
+    function stakeSwitchToggle() external onlyAdmin {
+        stakeSwitch = !stakeSwitch;
+    }
+
+    function undelegate(address _poolAddress, address _validator) external onlyAdmin {
+        IStakePool stakePool = IStakePool(_poolAddress);
+        stakePool.undelegate(_validator, stakePool.getDelegated(_validator));
+    }
+
+    function transferToNewPool(address _poolAddress, address _newPool, uint256 _amount) external onlyAdmin {
+        IStakePool(_poolAddress).checkAndClaimUndelegated();
+        IStakePool(_poolAddress).checkAndClaimReward();
+        if (_amount > 0) {
+            IStakePool(_poolAddress).withdrawForStaker(_newPool, _amount);
+        }
+    }
+
     // ------ delegation balancer
 
     function redelegate(
@@ -310,6 +329,7 @@ contract StakeManager is Multisig, IRateProvider {
     }
 
     function stakeWithPool(address _poolAddress, uint256 _stakeAmount) public payable {
+        require(stakeSwitch, "stake switch closed");
         require(msg.value >= _stakeAmount.add(getStakeRelayerFee()), "fee not enough");
         require(_stakeAmount >= minStakeAmount, "amount not enough");
         require(bondedPools.contains(_poolAddress), "pool not exist");
@@ -335,6 +355,7 @@ contract StakeManager is Multisig, IRateProvider {
     }
 
     function unstakeWithPool(address _poolAddress, uint256 _rTokenAmount) public payable {
+        require(stakeSwitch, "stake switch closed");
         require(_rTokenAmount > 0, "rtoken amount zero");
         require(msg.value >= getUnstakeRelayerFee(), "fee not enough");
         require(bondedPools.contains(_poolAddress), "pool not exist");
@@ -411,6 +432,8 @@ contract StakeManager is Multisig, IRateProvider {
     // ----- permissionless
 
     function settle(address _poolAddress) public {
+        require(stakeSwitch, "stake switch closed");
+
         require(bondedPools.contains(_poolAddress), "pool not exist");
         _checkAndRepairDelegated(_poolAddress);
 
@@ -442,6 +465,8 @@ contract StakeManager is Multisig, IRateProvider {
         uint256[] calldata _newRewardList,
         uint256[] calldata _latestRewardTimestampList
     ) external onlyVoter {
+        require(stakeSwitch, "stake switch closed");
+
         uint256 _era = latestEra.add(1);
         bytes32 proposalId = keccak256(
             abi.encodePacked("newEra", _era, _poolAddressList, _newRewardList, _latestRewardTimestampList)
