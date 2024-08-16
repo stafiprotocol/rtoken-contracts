@@ -4,6 +4,7 @@ pragma abicoder v2;
 import "./IValidatorShare.sol";
 import "./IGovStakeManager.sol";
 import "./IStakePool.sol";
+import "./IPolygonMigration.sol";
 import {SafeERC20, IERC20, SafeMath} from "@openzeppelin/contracts/token/ERC20/SafeERC20.sol";
 
 // SPDX-License-Identifier: GPL-3.0-only
@@ -12,10 +13,10 @@ contract StakePool is IStakePool {
     using SafeMath for uint256;
 
     bytes32 private constant stakeManagerAddressSlot =
-        bytes32(uint256(keccak256("StakePool.proxy.stakeManagerAddressSlot")) - 1);
+    bytes32(uint256(keccak256("StakePool.proxy.stakeManagerAddressSlot")) - 1);
 
     bytes32 private constant govStakeManagerAddressSlot =
-        bytes32(uint256(keccak256("StakePool.proxy.govStakeManagerAddressSlot")) - 1);
+    bytes32(uint256(keccak256("StakePool.proxy.govStakeManagerAddressSlot")) - 1);
 
     modifier onlyStakeManager() {
         require(msg.sender == stakeManagerAddress(), "only stakeManager");
@@ -69,7 +70,7 @@ contract StakePool is IStakePool {
             address valAddress = govStakeManager.getValidatorContract(_validators[j]);
             uint256 reward = IValidatorShare(valAddress).getLiquidRewards(address(this));
             if (reward > 0) {
-                IValidatorShare(valAddress).buyVoucher(0, 0);
+                IValidatorShare(valAddress).buyVoucherPOL(0, 0);
                 poolNewReward = poolNewReward.add(reward);
             }
         }
@@ -81,12 +82,12 @@ contract StakePool is IStakePool {
         uint256 _amount
     ) external override onlyStakeManager returns (uint256 amountToDeposit) {
         address valAddress = IGovStakeManager(govStakeManagerAddress()).getValidatorContract(_validator);
-        return IValidatorShare(valAddress).buyVoucher(_amount, 0);
+        return IValidatorShare(valAddress).buyVoucherPOL(_amount, 0);
     }
 
     function undelegate(uint256 _validator, uint256 _claimAmount) external override onlyStakeManager {
         address valAddress = IGovStakeManager(govStakeManagerAddress()).getValidatorContract(_validator);
-        IValidatorShare(valAddress).sellVoucher_new(_claimAmount, _claimAmount);
+        IValidatorShare(valAddress).sellVoucher_newPOL(_claimAmount, _claimAmount);
     }
 
     function unstakeClaimTokens(
@@ -141,9 +142,15 @@ contract StakePool is IStakePool {
         IERC20(_erc20TokenAddress).safeIncreaseAllowance(govStakeManagerAddress(), amount);
     }
 
+    function migrateMaticToPol(address _erc20TokenAddress, address polygonMigration) external override onlyStakeManager {
+        uint256 maticAmount = IERC20(_erc20TokenAddress).balanceOf(address(this));
+        IERC20(_erc20TokenAddress).safeIncreaseAllowance(polygonMigration, maticAmount);
+        IPolygonMigration(polygonMigration).migrate(maticAmount);
+    }
+
     function getTotalStakeOnValidator(uint256 _validator) external view override returns (uint256) {
         address valAddress = IGovStakeManager(govStakeManagerAddress()).getValidatorContract(_validator);
-        (uint256 totalStake, ) = IValidatorShare(valAddress).getTotalStake(address(this));
+        (uint256 totalStake,) = IValidatorShare(valAddress).getTotalStake(address(this));
         return totalStake;
     }
 
@@ -152,7 +159,7 @@ contract StakePool is IStakePool {
         IGovStakeManager govStakeManager = IGovStakeManager(govStakeManagerAddress());
         for (uint256 j = 0; j < _validators.length; ++j) {
             address valAddress = govStakeManager.getValidatorContract(_validators[j]);
-            (uint256 stake, ) = IValidatorShare(valAddress).getTotalStake(address(this));
+            (uint256 stake,) = IValidatorShare(valAddress).getTotalStake(address(this));
             totalStake = totalStake.add(stake);
         }
         return totalStake;

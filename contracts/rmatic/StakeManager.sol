@@ -51,6 +51,8 @@ contract StakeManager is IRateProvider {
 
     mapping(address => uint256) public redelegateRewardOfPool;
 
+    bool public paused;
+
     // events
     event Stake(address staker, address poolAddress, uint256 tokenAmount, uint256 rTokenAmount);
     event Unstake(
@@ -101,6 +103,11 @@ contract StakeManager is IRateProvider {
         _;
     }
 
+    modifier onlyUnpaused() {
+        require(!paused, "paused");
+        _;
+    }
+
     // ----- getters
 
     function getRate() external view override returns (uint256) {
@@ -136,6 +143,31 @@ contract StakeManager is IRateProvider {
     }
 
     // ------ settings
+    function pause() external onlyAdmin {
+        paused = true;
+    }
+
+    function unpause() external onlyAdmin {
+        paused = false;
+    }
+
+    function upgradeToPol(
+        address _poolAddress,
+        address _maticTokenAddress,
+        address _polTokenAddress,
+        address _migrationAddress
+    ) external onlyAdmin {
+        require(paused, "not paused");
+        require(_poolAddress != address(0), "zero pool address");
+        require(_maticTokenAddress != address(0), "zero matic token address");
+        require(_polTokenAddress != address(0), "zero pol token address");
+        require(_migrationAddress != address(0), "zero migration address");
+
+        IStakePool(_poolAddress).migrateMaticToPol(_maticTokenAddress, _migrationAddress);
+        IStakePool(_poolAddress).approveForStakeManager(_polTokenAddress, 1e28);
+
+        erc20TokenAddress = _polTokenAddress;
+    }
 
     function migrate(
         address _poolAddress,
@@ -246,7 +278,7 @@ contract StakeManager is IRateProvider {
         uint256 _srcValidatorId,
         uint256 _dstValidatorId,
         uint256 _amount
-    ) external onlyDelegationBalancer {
+    ) external onlyDelegationBalancer onlyUnpaused {
         require(validatorIdsOf[_poolAddress].contains(_srcValidatorId), "val not exist");
         require(_srcValidatorId != _dstValidatorId, "val duplicate");
         require(_amount > 0, "amount zero");
@@ -283,7 +315,7 @@ contract StakeManager is IRateProvider {
         withdrawWithPool(bondedPools.at(0));
     }
 
-    function stakeWithPool(address _poolAddress, uint256 _stakeAmount) public {
+    function stakeWithPool(address _poolAddress, uint256 _stakeAmount) public onlyUnpaused {
         require(_stakeAmount >= minStakeAmount, "amount not enough");
         require(bondedPools.contains(_poolAddress), "pool not exist");
 
@@ -304,7 +336,7 @@ contract StakeManager is IRateProvider {
         emit Stake(msg.sender, _poolAddress, _stakeAmount, rTokenAmount);
     }
 
-    function unstakeWithPool(address _poolAddress, uint256 _rTokenAmount) public {
+    function unstakeWithPool(address _poolAddress, uint256 _rTokenAmount) public onlyUnpaused {
         require(_rTokenAmount > 0, "rtoken amount zero");
         require(bondedPools.contains(_poolAddress), "pool not exist");
         require(unstakesOfUser[msg.sender].length() <= UNBOND_TIMES_LIMIT, "unstake times limit");
@@ -343,7 +375,7 @@ contract StakeManager is IRateProvider {
         emit Unstake(msg.sender, _poolAddress, tokenAmount, _rTokenAmount, leftRTokenAmount, willUseUnstakeIndex);
     }
 
-    function withdrawWithPool(address _poolAddress) public {
+    function withdrawWithPool(address _poolAddress) public onlyUnpaused {
         uint256 totalWithdrawAmount;
         uint256 length = unstakesOfUser[msg.sender].length();
         uint256[] memory unstakeIndexList = new uint256[](length);
@@ -357,7 +389,7 @@ contract StakeManager is IRateProvider {
             uint256 unstakeIndex = unstakeIndexList[i];
             UnstakeInfo memory unstakeInfo = unstakeAtIndex[unstakeIndex];
             if (unstakeInfo.era.add(unbondingDuration) > curEra || unstakeInfo.pool != _poolAddress) {
-                emitUnstakeIndexList[i] = -1;
+                emitUnstakeIndexList[i] = - 1;
                 continue;
             }
 

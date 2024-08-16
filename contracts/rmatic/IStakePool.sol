@@ -20,4 +20,6 @@ interface IStakePool {
     function getTotalStakeOnValidator(uint256 validator) external view returns (uint256);
 
     function getTotalStakeOnValidators(uint256[] calldata validator) external view returns (uint256);
+
+    function migrateMaticToPol(address _erc20TokenAddress,address polygonMigration) external;
 }
