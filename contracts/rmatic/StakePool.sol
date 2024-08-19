@@ -144,6 +144,9 @@ contract StakePool is IStakePool {
 
     function migrateMaticToPol(address _erc20TokenAddress, address polygonMigration) external override onlyStakeManager {
         uint256 maticAmount = IERC20(_erc20TokenAddress).balanceOf(address(this));
+        if (maticAmount == 0) {
+            return;
+        }
         IERC20(_erc20TokenAddress).safeIncreaseAllowance(polygonMigration, maticAmount);
         IPolygonMigration(polygonMigration).migrate(maticAmount);
     }
