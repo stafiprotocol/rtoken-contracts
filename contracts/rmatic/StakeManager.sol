@@ -389,7 +389,7 @@ contract StakeManager is IRateProvider {
             uint256 unstakeIndex = unstakeIndexList[i];
             UnstakeInfo memory unstakeInfo = unstakeAtIndex[unstakeIndex];
             if (unstakeInfo.era.add(unbondingDuration) > curEra || unstakeInfo.pool != _poolAddress) {
-                emitUnstakeIndexList[i] = - 1;
+                emitUnstakeIndexList[i] = -1;
                 continue;
             }
 

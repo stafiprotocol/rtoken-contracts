@@ -13,10 +13,10 @@ contract StakePool is IStakePool {
     using SafeMath for uint256;
 
     bytes32 private constant stakeManagerAddressSlot =
-    bytes32(uint256(keccak256("StakePool.proxy.stakeManagerAddressSlot")) - 1);
+        bytes32(uint256(keccak256("StakePool.proxy.stakeManagerAddressSlot")) - 1);
 
     bytes32 private constant govStakeManagerAddressSlot =
-    bytes32(uint256(keccak256("StakePool.proxy.govStakeManagerAddressSlot")) - 1);
+        bytes32(uint256(keccak256("StakePool.proxy.govStakeManagerAddressSlot")) - 1);
 
     modifier onlyStakeManager() {
         require(msg.sender == stakeManagerAddress(), "only stakeManager");
@@ -142,7 +142,10 @@ contract StakePool is IStakePool {
         IERC20(_erc20TokenAddress).safeIncreaseAllowance(govStakeManagerAddress(), amount);
     }
 
-    function migrateMaticToPol(address _erc20TokenAddress, address polygonMigration) external override onlyStakeManager {
+    function migrateMaticToPol(
+        address _erc20TokenAddress,
+        address polygonMigration
+    ) external override onlyStakeManager {
         uint256 maticAmount = IERC20(_erc20TokenAddress).balanceOf(address(this));
         if (maticAmount == 0) {
             return;
@@ -153,7 +156,7 @@ contract StakePool is IStakePool {
 
     function getTotalStakeOnValidator(uint256 _validator) external view override returns (uint256) {
         address valAddress = IGovStakeManager(govStakeManagerAddress()).getValidatorContract(_validator);
-        (uint256 totalStake,) = IValidatorShare(valAddress).getTotalStake(address(this));
+        (uint256 totalStake, ) = IValidatorShare(valAddress).getTotalStake(address(this));
         return totalStake;
     }
 
@@ -162,7 +165,7 @@ contract StakePool is IStakePool {
         IGovStakeManager govStakeManager = IGovStakeManager(govStakeManagerAddress());
         for (uint256 j = 0; j < _validators.length; ++j) {
             address valAddress = govStakeManager.getValidatorContract(_validators[j]);
-            (uint256 stake,) = IValidatorShare(valAddress).getTotalStake(address(this));
+            (uint256 stake, ) = IValidatorShare(valAddress).getTotalStake(address(this));
             totalStake = totalStake.add(stake);
         }
         return totalStake;
