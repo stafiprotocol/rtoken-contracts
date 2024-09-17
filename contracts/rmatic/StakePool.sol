@@ -115,7 +115,7 @@ contract StakePool is IStakePool {
             return _claimedNonce;
         }
 
-        IValidatorShare(valAddress).unstakeClaimTokens_new(willClaimedNonce);
+        IValidatorShare(valAddress).unstakeClaimTokens_newPOL(willClaimedNonce);
 
         return willClaimedNonce;
     }
